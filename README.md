@@ -2,7 +2,7 @@
 
 HydMetro Pro is a sophisticated, AI-enhanced transit management and visualization platform for the Hyderabad Metro Rail network. It combines real-time data engineering, satellite-mapped topology, and predictive analytics to provide commuters with a high-fidelity "Intelligence Engine" for their daily travels.
 
-![HydMetro Preview](https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop)
+![HydMetro Preview](https://tse4.mm.bing.net/th/id/OIP.1NBA8PENs-qr3CIho0o5oAHaDt?pid=Api&P=0&h=180)
 
 ## 🚀 Key Features
 
