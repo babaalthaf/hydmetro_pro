@@ -637,7 +637,7 @@ HTML_TEMPLATE = """
             position: fixed;
             top: 20px;
             left: 280px;
-            z-index: 1000;
+            z-index: 3000;
             background: #0f172a;
             color: white;
             border: none;
@@ -650,7 +650,6 @@ HTML_TEMPLATE = """
             box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
             cursor: pointer;
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            display: none; /* Desktop only */
         }
         .sidebar-toggle:hover {
             transform: scale(1.05);
@@ -659,24 +658,41 @@ HTML_TEMPLATE = """
         .sidebar-toggle.sidebar-collapsed {
             left: 20px;
         }
-        @media (min-width: 1025px) {
-            .sidebar-toggle { display: flex; }
-        }
 
         @media (max-width: 1024px) {
-            .sidebar { display: none; }
-            .sidebar.collapsed { transform: none; }
+            .sidebar { 
+                transform: translateX(-100%); 
+                z-index: 2000;
+                box-shadow: 20px 0 50px rgba(0,0,0,0.1);
+            }
+            .sidebar:not(.collapsed) { transform: translateX(0); }
+            .sidebar.collapsed { transform: translateX(-100%); }
+
             .main { margin-left: 0; padding: 24px; padding-bottom: 120px; }
             .mobile-nav { display: flex; }
+
+            /* On mobile, adjust the toggle button when sidebar is open to not go off-screen if too narrow */
+            .sidebar-toggle:not(.sidebar-collapsed) {
+                left: 270px;
+            }
         }
 
         .mobile-nav { 
             display: none; position: fixed; bottom: 20px; left: 20px; right: 20px; 
             background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(20px);
-            border-radius: 20px; z-index: 100;
+            border-radius: 20px; z-index: 1000;
             padding: 10px; justify-content: space-around;
             box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
         }
+        .mobile-link {
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+            color: #94a3b8; padding: 10px 20px; border-radius: 14px;
+            transition: all 0.3s; cursor: pointer;
+        }
+        .mobile-link i { width: 20px; height: 20px; }
+        .mobile-link span { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+        .mobile-link.active { background: rgba(255,255,255,0.1); color: white; }
 
         .nav-link { 
             display: flex; align-items: center; gap: 12px; padding: 12px 20px; 
@@ -727,7 +743,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <div class=\"sidebar p-10 flex flex-col justify-between shadow-2xl shadow-slate-200/50\">
+    <div class=\"sidebar collapsed p-10 flex flex-col justify-between shadow-2xl shadow-slate-200/50\">
         <div>
             <div class=\"flex items-center gap-4 mb-16\">
                 <div class=\"w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-2xl shadow-slate-400/20\"><i data-lucide=\"train-front\"></i></div>
@@ -737,6 +753,7 @@ HTML_TEMPLATE = """
                 <div onclick=\"showTab('home')\" id=\"btn-home\" class=\"nav-link active\"><i data-lucide=\"layout-grid\"></i> Dashboard</div>
                 <div onclick=\"showTab('map')\" id=\"btn-map\" class=\"nav-link\"><i data-lucide=\"globe\"></i> Network Flux</div>
                 <div onclick=\"showTab('routes')\" id=\"btn-routes\" class=\"nav-link\"><i data-lucide=\"route\"></i> Path Architect</div>
+                <div onclick=\"showTab('feedback')\" id=\"btn-feedback\" class=\"nav-link\"><i data-lucide=\"message-square\"></i> Feedback</div>
             </nav>
         </div>
         <div class=\"bg-indigo-50/50 p-6 rounded-[32px] border border-indigo-100\">
@@ -749,11 +766,12 @@ HTML_TEMPLATE = """
         <div onclick=\"showTab('home')\" class=\"mobile-link active\" id=\"mob-home\"><i data-lucide=\"layout-grid\"></i><span>Home</span></div>
         <div onclick=\"showTab('map')\" class=\"mobile-link\" id=\"mob-map\"><i data-lucide=\"globe\"></i><span>Map</span></div>
         <div onclick=\"showTab('routes')\" class=\"mobile-link\" id=\"mob-routes\"><i data-lucide=\"route\"></i><span>Planner</span></div>
+        <div onclick=\"showTab('feedback')\" class=\"mobile-link\" id=\"mob-feedback\"><i data-lucide=\"message-square\"></i><span>Feed</span></div>
     </div>
 
     <div class=\"main\" id=\"main-content\">
-        <button onclick=\"toggleSidebar()\" class=\"sidebar-toggle\" id=\"sidebar-toggle\">
-            <i data-lucide=\"panel-left-close\"></i>
+        <button onclick=\"toggleSidebar()\" class=\"sidebar-toggle sidebar-collapsed\" id=\"sidebar-toggle\">
+            <i data-lucide=\"panel-left-open\"></i>
         </button>
         <!-- HOME HUB -->
         <div id=\"tab-home\" class=\"tab-content active\">
@@ -828,32 +846,12 @@ HTML_TEMPLATE = """
                 <div class=\"space-y-8\">
                     <div class=\"glass-card action-card bg-slate-900 text-white border-none p-10 overflow-hidden relative shadow-2xl shadow-slate-900/10\">
                         <div class=\"absolute -right-5 -top-5 w-40 h-40 bg-blue-500/20 rounded-full blur-[60px]\"></div>
-                        <i data-lucide=\"ticket\" class=\"mb-8 opacity-40\" size=\"32\"></i>
+                        <i data-lucide=\"map-pinned\" class=\"mb-8 opacity-40\" size=\"32\"></i>
                         <h4 class=\"text-xl font-black mb-3 relative z-10 tracking-tight\">Book Metro Ticket</h4>
-                        <p class=\"text-xs text-white/50 mb-10 relative z-10 font-bold uppercase tracking-widest\">Instant checkout via preferred UPI gateway.</p>
-                        <div class=\"space-y-4 relative z-10\">
-                            <button onclick=\"toggleUPISelection()\" id=\"pay-btn-main\" class=\"w-full py-5 bg-white text-slate-900 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-3\">
-                                <i data-lucide=\"smartphone\" size=\"14\"></i> Select Payment App
-                            </button>
-                            <div id=\"upi-selection\" class=\"hidden grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2 duration-300\">
-                                <button onclick=\"payWithUPI('Google Pay')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
-                                    <div class=\"w-6 h-6 bg-white rounded-md flex items-center justify-center p-1\"><i data-lucide=\"wallet\" class=\"text-slate-900\" size=\"14\"></i></div>
-                                    <span class=\"text-[8px] font-black uppercase\">G-Pay</span>
-                                </button>
-                                <button onclick=\"payWithUPI('PhonePe')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
-                                    <div class=\"w-6 h-6 bg-purple-500 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"zap\" class=\"text-white\" size=\"14\"></i></div>
-                                    <span class=\"text-[8px] font-black uppercase\">PhonePe</span>
-                                </button>
-                                <button onclick=\"payWithUPI('Paytm')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
-                                    <div class=\"w-6 h-6 bg-sky-400 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"credit-card\" class=\"text-white\" size=\"14\"></i></div>
-                                    <span class=\"text-[8px] font-black uppercase\">Paytm</span>
-                                </button>
-                                <button onclick=\"payWithUPI('Others')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
-                                    <div class=\"w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"qr-code\" class=\"text-white\" size=\"14\"></i></div>
-                                    <span class=\"text-[8px] font-black uppercase\">Others</span>
-                                </button>
-                            </div>
-                        </div>
+                        <p class=\"text-xs text-white/50 mb-10 relative z-10 font-bold uppercase tracking-widest\">Select your destination and secure a digital token instantly.</p>
+                        <button onclick=\"showTab('routes')\" class=\"w-full py-5 bg-white text-slate-900 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 relative z-10\">
+                            <i data-lucide=\"route\" size=\"14\"></i> Open Planner
+                        </button>
                     </div>
                     <div class=\"glass-card action-card border-none p-10 bg-white overflow-hidden relative shadow-2xl shadow-slate-200/50\">
                         <div class=\"absolute -right-5 -top-5 w-40 h-40 bg-indigo-50 rounded-full blur-[60px]\"></div>
@@ -1027,10 +1025,92 @@ HTML_TEMPLATE = """
                             <div id="route-seq" class="border-l-2 border-slate-100 ml-5 pl-10 space-y-8 py-2"></div>
                         </div>
                     </div>
+
+                    <!-- Digital Ticket & Payment Hub -->
+                    <div class=\"glass-card p-10 border-none bg-slate-900 text-white relative overflow-hidden\">
+                        <div class=\"absolute -right-10 -top-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl\"></div>
+                        <div class=\"flex items-center gap-4 mb-6 relative z-10\">
+                            <div class=\"p-2 bg-white/10 rounded-xl\"><i data-lucide=\"ticket\" size=\"16\"></i></div>
+                            <h5 class=\"text-[10px] font-black uppercase tracking-widest\">Secure Digital Ticket</h5>
+                        </div>
+                        <p class=\"text-xs text-white/60 mb-8 relative z-10 font-bold opacity-80 uppercase tracking-widest\">Instant checkout via UPI. Your ticket will be issued upon successful payment.</p>
+                        <div class=\"space-y-4 relative z-10\">
+                            <button onclick=\"toggleUPISelection()\" id=\"pay-btn-main\" class=\"w-full py-5 bg-white text-slate-900 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 transition-all active:scale-[0.98]\">
+                                <i data-lucide=\"smartphone\" size=\"14\"></i> Select Payment App
+                            </button>
+                            <div id=\"upi-selection\" class=\"hidden grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2 duration-300\">
+                                <button onclick=\"payWithUPI('Google Pay')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-white rounded-md flex items-center justify-center p-1\"><i data-lucide=\"wallet\" class=\"text-slate-900\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">G-Pay</span>
+                                </button>
+                                <button onclick=\"payWithUPI('PhonePe')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-purple-500 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"zap\" class=\"text-white\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">PhonePe</span>
+                                </button>
+                                <button onclick=\"payWithUPI('Paytm')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-sky-400 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"credit-card\" class=\"text-white\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">Paytm</span>
+                                </button>
+                                <button onclick=\"payWithUPI('Others')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"qr-code\" class=\"text-white\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">Others</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="route-empty" class="glass-card flex flex-col items-center justify-center py-32 text-slate-300 border-dashed border-2 border-slate-200">
                     <i data-lucide="cpu" size="48" class="mb-4 opacity-20"></i><p class="font-bold text-slate-400 uppercase text-[10px] tracking-widest">Engine Idle. Awaiting logic trigger.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- FEEDBACK HUB -->
+        <div id="tab-feedback" class="tab-content">
+            <div class=\"flex flex-col lg:flex-row lg:items-center justify-between mb-10 gap-6 border-b pb-8 border-slate-200\">
+                <div>
+                   <h2 class=\"text-4xl font-black tracking-tight mb-2\">User Sentiment Hub</h2>
+                   <p class=\"text-xs font-bold text-slate-400 uppercase tracking-widest\">Help us improve the neural network logic</p>
+                </div>
+            </div>
+
+            <div class=\"grid grid-cols-1 lg:grid-cols-12 gap-12\">
+                <div class=\"lg:col-span-5\">
+                    <div class=\"glass-card border-none shadow-2xl bg-white p-10 relative overflow-hidden\">
+                        <h4 class=\"text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-8\">Transmit Feedback</h4>
+                        <div class=\"space-y-6\">
+                            <div class=\"space-y-2\">
+                                <label class=\"text-[10px] font-black text-slate-500 uppercase tracking-widest\">Category</label>
+                                <select id=\"feedback-cat\" class=\"w-full p-5 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm appearance-none cursor-pointer\">
+                                    <option>App Experience</option>
+                                    <option>Station Accuracy</option>
+                                    <option>Train Timing</option>
+                                    <option>Feature Request</option>
+                                    <option>Bugs / Crashes</option>
+                                </select>
+                            </div>
+                            <div class=\"space-y-2\">
+                                <label class=\"text-[10px] font-black text-slate-500 uppercase tracking-widest\">Your Message</label>
+                                <textarea id=\"feedback-msg\" rows=\"5\" class=\"w-full p-5 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm resize-none\" placeholder=\"Share your thoughts...\"></textarea>
+                            </div>
+                            <button onclick=\"submitFeedback()\" class=\"w-full py-5 bg-slate-900 text-white font-black rounded-2xl text-[11px] uppercase tracking-widest shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3\">
+                                <i data-lucide=\"send\" size=\"14\"></i> Ship Feedback
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class=\"lg:col-span-7\">
+                    <div class=\"glass-card border-none bg-slate-50/50 p-10 min-h-[500px]\">
+                        <h4 class=\"text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-8\">History Log (Stored Locally)</h4>
+                        <div id=\"feedback-history\" class=\"space-y-6\">
+                            <!-- Injected by JS -->
+                        </div>
+                        <div id=\"feedback-empty\" class=\"py-20 text-center flex flex-col items-center justify-center text-slate-300\">
+                            <i data-lucide=\"archive\" size=\"32\" class=\"mb-4 opacity-20\"></i>
+                            <p class=\"text-[10px] font-black uppercase tracking-widest\">No transmissions found in local matrix</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1039,6 +1119,74 @@ HTML_TEMPLATE = """
     <script>
         lucide.createIcons();
         const stations = {{ ALL_STATIONS | tojson }};
+
+        // Feedback Logic
+        function loadFeedback() {
+            const history = JSON.parse(localStorage.getItem('metro_feedback') || '[]');
+            const container = document.getElementById('feedback-history');
+            const empty = document.getElementById('feedback-empty');
+
+            if (!container) return;
+
+            container.innerHTML = '';
+            if (history.length > 0) {
+                if (empty) empty.classList.add('hidden');
+                history.reverse().forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = \"bg-white p-6 rounded-2xl border border-slate-100 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-500\";
+                    card.innerHTML = `
+                        <div class=\"flex justify-between items-start mb-4\">
+                            <span class=\"px-3 py-1 bg-blue-50 text-blue-600 text-[9px] font-black rounded-lg uppercase tracking-widest\">${item.category}</span>
+                            <span class=\"text-[8px] font-black text-slate-400 uppercase tracking-widest\">${item.date}</span>
+                        </div>
+                        <p class=\"text-xs font-bold text-slate-700 leading-relaxed italic\">\"${item.message}\"</p>
+                    `;
+                    container.appendChild(card);
+                });
+            } else {
+                if (empty) empty.classList.remove('hidden');
+            }
+        }
+
+        function submitFeedback() {
+            const msg = document.getElementById('feedback-msg').value.trim();
+            const cat = document.getElementById('feedback-cat').value;
+
+            if (!msg) {
+                alert(\"Please enter a message before shipping.\");
+                return;
+            }
+
+            const feedback = {
+                id: Date.now(),
+                message: msg,
+                category: cat,
+                date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            };
+
+            const history = JSON.parse(localStorage.getItem('metro_feedback') || '[]');
+            history.push(feedback);
+            localStorage.setItem('metro_feedback', JSON.stringify(history));
+
+            // Clear Input
+            document.getElementById('feedback-msg').value = '';
+
+            // UI Update
+            loadFeedback();
+
+            // Success Effect
+            const btn = document.querySelector('[onclick=\"submitFeedback()\"]');
+            const oldHtml = btn.innerHTML;
+            btn.classList.replace('bg-slate-900', 'bg-emerald-500');
+            btn.innerHTML = '<i data-lucide=\"check-circle\" size=\"14\"></i> Feedback Received';
+            lucide.createIcons();
+
+            setTimeout(() => {
+                btn.classList.replace('bg-emerald-500', 'bg-slate-900');
+                btn.innerHTML = oldHtml;
+                lucide.createIcons();
+            }, 3000);
+        }
 
         let lastCalculatedFare = 20;
 
@@ -1137,6 +1285,12 @@ HTML_TEMPLATE = """
             document.getElementById('mob-'+id).classList.add('active');
 
             if(id !== 'map') closeOverlay();
+
+            // Auto-close sidebar on mobile after navigation
+            if(window.innerWidth <= 1024) {
+                const sidebar = document.querySelector('.sidebar');
+                if(!sidebar.classList.contains('collapsed')) toggleSidebar();
+            }
         }
 
         function closeOverlay() {
@@ -1575,7 +1729,7 @@ HTML_TEMPLATE = """
         }
         setInterval(updateLiveTrains, 2000);
 
-        setupMap(); initGeo(); initPickers(); updateLiveTrains();
+        setupMap(); initGeo(); initPickers(); updateLiveTrains(); loadFeedback();
     </script>
 </body>
 </html>
