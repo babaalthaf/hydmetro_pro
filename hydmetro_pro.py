@@ -276,7 +276,7 @@ def api_nearest():
                 if diff < 0: continue
 
                 m, s = divmod(int(diff), 60)
-                row['eta'] = f"{m:02d}:{s:02d}"
+                row['eta'] = f"{m}m {s}s"
                 upcoming.append(row)
 
     # Sort upcoming by time
@@ -326,6 +326,34 @@ def api_plan():
 
     sequence = [next(s for s in STATIONS_LIST if s['id'] == sid) for sid in path]
 
+    # Synchronize Arrival Time with GTFS schedule
+    ensure_gtfs()
+    gtfs_arrival_time = None
+    try:
+        now_str = now.strftime('%H:%M:%S')
+        with open(GTFS_FILE, 'r') as f:
+            reader = csv.DictReader(f)
+            trips = list(reader)
+
+        # Find the next available trip at start station
+        start_id = sequence[0]['id']
+        next_id = sequence[1]['id'] if len(sequence) > 1 else None
+
+        possible_trips = [t for t in trips if t['station_id'] == start_id and t['arrival_time'] > now_str]
+        possible_trips.sort(key=lambda x: x['arrival_time'])
+
+        for pt in possible_trips[:5]:  # Check first 5 upcoming
+            trip_data = [t for t in trips if t['trip_id'] == pt['trip_id']]
+            # Check if this trip eventually reaches the end_id
+            destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
+            if destination_stop:
+                # Basic check: destination must be after start
+                if destination_stop['arrival_time'] > pt['arrival_time']:
+                    gtfs_arrival_time = destination_stop['arrival_time']
+                    break
+    except Exception as e:
+        print(f"GTFS Planner Sync Error: {e}")
+
     # Calculate Total Distance for Precise Fare Prediction
     total_km = 0
     for i in range(len(sequence) - 1):
@@ -348,7 +376,12 @@ def api_plan():
 
     calculated_fare = get_fare_from_matrix(total_km)
     duration = len(sequence) * 2
-    arrival_at_destination = (now + timedelta(minutes=duration)).strftime('%H:%M')
+
+    # Use GTFS time if found, fallback to calculation
+    if gtfs_arrival_time:
+        arrival_at_destination = gtfs_arrival_time
+    else:
+        arrival_at_destination = (now + timedelta(minutes=duration)).strftime('%H:%M:%S')
 
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
@@ -401,7 +434,6 @@ def api_plan():
 
     # User Request: Upcoming trains for next 1 hour from source
     ensure_gtfs()
-    now = datetime.now()
     one_hour_later = now + timedelta(hours=1)
     now_str = now.strftime('%H:%M:%S')
     oh_str = one_hour_later.strftime('%H:%M:%S')
@@ -416,7 +448,7 @@ def api_plan():
                     ah, am, as_ = map(int, row['arrival_time'].split(':'))
                     arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                     diff = (arrival_dt - now).total_seconds()
-                    row['eta'] = f"{int(diff // 60):02d}:{int(diff % 60):02d}"
+                    row['eta'] = f"{int(diff // 60)}m {int(diff % 60)}s"
                 except:
                     row['eta'] = "Soon"
                 upcoming_hour.append(row)
@@ -473,8 +505,30 @@ HTML_TEMPLATE = """
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .sidebar { height: 100vh; width: 280px; position: fixed; background: white; border-right: 1px solid #f1f5f9; z-index: 50; }
-        .main { margin-left: 280px; padding: 60px; }
+        .sidebar { height: 100vh; width: 280px; position: fixed; background: white; border-right: 1px solid #f1f5f9; z-index: 50; display: flex; flex-direction: column; }
+        .main { margin-left: 280px; padding: 60px; min-height: 100vh; transition: margin 0.3s; }
+
+        /* Mobile Adjustments */
+        @media (max-width: 1024px) {
+            .sidebar { display: none; }
+            .main { margin-left: 0; padding: 24px; padding-bottom: 120px; }
+            .mobile-nav { display: flex; }
+        }
+
+        .mobile-nav { 
+            display: none; position: fixed; bottom: 0; left: 0; right: 0; 
+            background: white; border-top: 1px solid #f1f5f9; z-index: 100;
+            padding: 12px 20px 30px 20px; justify-content: space-around;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.05);
+        }
+
+        .mobile-link {
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+            color: #94a3b8; font-weight: 800; text-transform: uppercase; font-size: 8px;
+            letter-spacing: 0.1em; transition: all 0.3s;
+        }
+        .mobile-link.active { color: #0f172a; }
+        .mobile-link i { width: 20px; height: 20px; }
 
         .nav-link { 
             display: flex; align-items: center; gap: 12px; padding: 14px 24px; 
@@ -531,20 +585,27 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <div class=\"mobile-nav\">
+        <div onclick=\"showTab('home')\" class=\"mobile-link active\" id=\"mob-home\"><i data-lucide=\"layout-grid\"></i><span>Home</span></div>
+        <div onclick=\"showTab('map')\" class=\"mobile-link\" id=\"mob-map\"><i data-lucide=\"globe\"></i><span>Map</span></div>
+        <div onclick=\"showTab('routes')\" class=\"mobile-link\" id=\"mob-routes\"><i data-lucide=\"route\"></i><span>Planner</span></div>
+    </div>
+
     <div class=\"main\">
         <!-- HOME HUB -->
         <div id=\"tab-home\" class=\"tab-content active\">
-            <header class=\"flex justify-between items-start mb-16\">
+            <header class=\"flex flex-col lg:flex-row lg:justify-between lg:items-start gap-8 mb-16\">
                 <div>
-                    <h2 id=\"greeting\" class=\"text-5xl font-black text-slate-900 mb-2 tracking-tighter\">Good Day!</h2>
+                    <h1 class=\"text-2xl font-black lg:hidden mb-4 flex items-center gap-3\"><i data-lucide=\"train-front\"></i> HydMetro</h1>
+                    <h2 id=\"greeting\" class=\"text-4xl lg:text-5xl font-black text-slate-900 mb-2 tracking-tighter\">Good Day!</h2>
                     <p id=\"env-msg\" class=\"text-slate-400 font-bold max-w-sm leading-relaxed uppercase text-[10px] tracking-widest\">Neural processing active. Enjoy your commute across the network.</p>
                 </div>
-                <div class=\"glass-card py-4 px-8 flex flex-col items-end border-slate-200\">
+                <div class=\"glass-card py-4 px-8 flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-6 border-slate-200\">
                     <div class=\"flex items-baseline gap-2\">
-                        <span id=\"clock\" class=\"text-4xl font-black text-slate-900 tabular-nums tracking-tighter\">00:00:00</span>
+                        <span id=\"clock\" class=\"text-3xl lg:text-4xl font-black text-slate-900 tabular-nums tracking-tighter\">00:00:00</span>
                         <span id=\"ampm\" class=\"text-xs font-black text-slate-400 uppercase\">AM</span>
                     </div>
-                    <span id=\"date\" class=\"text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mt-1\">October 24, 2024</span>
+                    <span id=\"date\" class=\"text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]\">October 24, 2024</span>
                 </div>
             </header>
 
@@ -621,17 +682,17 @@ HTML_TEMPLATE = """
                     <g id=\"map-lines\"></g>
                     <g id=\"map-stations\"></g>
                 </svg>
-                <div id="map-overlay" class="absolute top-0 right-0 h-full w-[400px] translate-x-full z-20 transition-transform duration-500 ease-in-out bg-white shadow-[-20px_0_50px_-10px_rgba(0,0,0,0.1)] border-l border-slate-100">
-                    <div class="h-full flex flex-col p-10 overflow-hidden relative">
-                        <div class="absolute top-8 right-8 z-20">
-                            <button onclick="closeOverlay()" class="p-3 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-2xl transition-colors">
-                                <i data-lucide="x" size="20"></i>
+                <div id=\"map-overlay\" class=\"absolute top-0 right-0 h-full w-full lg:w-[400px] translate-x-full z-20 transition-transform duration-500 ease-in-out bg-white shadow-[-20px_0_50px_-10px_rgba(0,0,0,0.1)] border-l border-slate-100\">
+                    <div class=\"h-full flex flex-col p-6 lg:p-10 overflow-hidden relative\">
+                        <div class=\"absolute top-6 right-6 lg:top-8 lg:right-8 z-20\">
+                            <button onclick=\"closeOverlay()\" class=\"p-3 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-2xl transition-colors\">
+                                <i data-lucide=\"x\" size=\"20\"></i>
                             </button>
                         </div>
 
-                        <div class="mb-10">
-                            <span id="ov-line" class="px-3 py-1 text-[10px] font-black uppercase rounded-lg mb-4 inline-block">LINE</span>
-                            <h4 id="ov-name" class="text-4xl font-black text-slate-900 leading-tight tracking-tighter">Station Name</h4>
+                        <div class=\"mb-10 px-2 lg:px-0\">
+                            <span id=\"ov-line\" class=\"px-3 py-1 text-[10px] font-black uppercase rounded-lg mb-4 inline-block\">LINE</span>
+                            <h4 id=\"ov-name\" class=\"text-3xl lg:text-4xl font-black text-slate-900 leading-tight tracking-tighter\">Station Name</h4>
                         </div>
 
                         <div class="flex-1 overflow-y-auto space-y-10 scrollbar-hide">
@@ -736,33 +797,31 @@ HTML_TEMPLATE = """
                               <div class="flex items-start gap-4"><div class="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0"><i data-lucide="phone-call" size="18" class="text-red-500"></i></div><p class="text-xs font-semibold text-slate-600 leading-relaxed">Emergency Helpline: 155370. Medical SOS available at all major hubs.</p></div>
                          </div>
                     </div>
-                </div>
-
-                <div id="route-output" class="hidden space-y-6">
+                           <div id=\"route-output\" class=\"hidden space-y-6\">
                     <!-- AI Recommendation Box -->
-                    <div class="glass-card border-none bg-indigo-50 border-l-4 border-indigo-500 p-6 flex items-start gap-4">
-                        <div class="p-2 bg-indigo-500 text-white rounded-xl"><i data-lucide="cpu" size="16"></i></div>
+                    <div class=\"glass-card border-none bg-indigo-50 border-l-4 border-indigo-500 p-6 flex items-start gap-4\">
+                        <div class=\"p-2 bg-indigo-500 text-white rounded-xl\"><i data-lucide=\"cpu\" size=\"16\"></i></div>
                         <div>
-                            <h5 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">AI Recommendation</h5>
-                            <p id="route-rec" class="text-xs font-bold text-slate-600">--</p>
+                            <h5 class=\"text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1\">AI Recommendation</h5>
+                            <p id=\"route-rec\" class=\"text-xs font-bold text-slate-600\">--</p>
                         </div>
                     </div>
 
-                    <div class="glass-card p-0 overflow-hidden border-none shadow-2xl">
-                        <div class="p-10 bg-slate-900 text-white flex justify-between items-end overflow-hidden relative">
-                            <div class="absolute -left-10 -bottom-10 w-40 h-40 bg-blue-600/30 rounded-full blur-3xl"></div>
+                    <div class=\"glass-card p-0 overflow-hidden border-none shadow-2xl\">
+                        <div class=\"p-6 lg:p-10 bg-slate-900 text-white flex flex-col lg:flex-row lg:justify-between lg:items-end overflow-hidden relative gap-8 lg:gap-0\">
+                            <div class=\"absolute -left-10 -bottom-10 w-40 h-40 bg-blue-600/30 rounded-full blur-3xl\"></div>
                             <div>
-                                <p id="route-dur" class="text-5xl font-black leading-none">--</p>
-                                <p class="text-[10px] font-bold uppercase tracking-widest opacity-40 mt-4">Total Transit Time</p>
+                                <p id=\"route-dur\" class=\"text-4xl lg:text-5xl font-black leading-none\">--</p>
+                                <p class=\"text-[10px] font-bold uppercase tracking-widest opacity-40 mt-4\">Total Transit Time</p>
                             </div>
-                            <div class="text-right z-10">
-                                <div class="flex flex-col items-end mb-4">
-                                    <p id="route-dest-time" class="text-xl font-black">--:--</p>
-                                    <p class="text-[9px] font-bold uppercase tracking-widest opacity-40">Est. Arrival</p>
+                            <div class=\"flex justify-between lg:block lg:text-right z-10 w-full lg:w-auto\">
+                                <div class=\"flex flex-col lg:items-end lg:mb-4\">
+                                    <p id=\"route-dest-time\" class=\"text-lg lg:text-xl font-black\">--:--</p>
+                                    <p class=\"text-[9px] font-bold uppercase tracking-widest opacity-40\">Est. Arrival</p>
                                 </div>
-                                <div class="flex flex-col items-end">
-                                    <p id="route-fare" class="text-xl font-black">₹--</p>
-                                    <p class="text-[9px] font-bold uppercase tracking-widest opacity-40">Locked Fare</p>
+                                <div class=\"flex flex-col items-end\">
+                                    <p id=\"route-fare\" class=\"text-lg lg:text-xl font-black\">₹--</p>
+                                    <p class=\"text-[9px] font-bold uppercase tracking-widest opacity-40\">Locked Fare</p>
                                 </div>
                             </div>
                         </div>
@@ -790,8 +849,12 @@ HTML_TEMPLATE = """
         function showTab(id) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            document.querySelectorAll('.mobile-link').forEach(l => l.classList.remove('active'));
+
             document.getElementById('tab-'+id).classList.add('active');
             document.getElementById('btn-'+id).classList.add('active');
+            document.getElementById('mob-'+id).classList.add('active');
+
             if(id !== 'map') closeOverlay();
         }
 
