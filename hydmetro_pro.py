@@ -533,11 +533,42 @@ HTML_TEMPLATE = """
             backdrop-filter: blur(40px);
             border-right: 1px solid #f1f5f9; z-index: 50; 
             display: flex; flex-direction: column; 
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .main { margin-left: 260px; padding: 48px; min-height: 100vh; transition: all 0.3s; }
+        .sidebar.collapsed {
+            transform: translateX(-100%);
+        }
+        .main { 
+            margin-left: 260px; 
+            padding: 48px; 
+            min-height: 100vh; 
+            transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        .main.full-width {
+            margin-left: 0;
+        }
+
+        .sidebar-toggle {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            z-index: 100;
+            background: white;
+            border: 1px solid #f1f5f9;
+            padding: 12px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            cursor: pointer;
+            transition: all 0.3s;
+            display: none; /* Desktop only */
+        }
+        @media (min-width: 1025px) {
+            .sidebar-toggle { display: flex; }
+        }
 
         @media (max-width: 1024px) {
             .sidebar { display: none; }
+            .sidebar.collapsed { transform: none; }
             .main { margin-left: 0; padding: 24px; padding-bottom: 120px; }
             .mobile-nav { display: flex; }
         }
@@ -617,7 +648,10 @@ HTML_TEMPLATE = """
         <div onclick=\"showTab('routes')\" class=\"mobile-link\" id=\"mob-routes\"><i data-lucide=\"route\"></i><span>Planner</span></div>
     </div>
 
-    <div class=\"main\">
+    <div class=\"main\" id=\"main-content\">
+        <button onclick=\"toggleSidebar()\" class=\"sidebar-toggle\" id=\"sidebar-toggle\">
+            <i data-lucide=\"panel-left-close\"></i>
+        </button>
         <!-- HOME HUB -->
         <div id=\"tab-home\" class=\"tab-content active\">
             <header class=\"flex flex-col lg:flex-row lg:justify-between lg:items-start gap-8 mb-16\">
@@ -878,6 +912,19 @@ HTML_TEMPLATE = """
     <script>
         lucide.createIcons();
         const stations = {{ ALL_STATIONS | tojson }};
+
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            const main = document.getElementById('main-content');
+            const btn = document.getElementById('sidebar-toggle');
+
+            sidebar.classList.toggle('collapsed');
+            main.classList.toggle('full-width');
+
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            btn.innerHTML = isCollapsed ? '<i data-lucide="panel-left-open"></i>' : '<i data-lucide="panel-left-close"></i>';
+            lucide.createIcons();
+        }
 
         function showTab(id) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
