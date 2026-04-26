@@ -4,7 +4,7 @@ import json
 import math
 import random
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
 
 app = Flask(__name__)
@@ -13,6 +13,11 @@ app = Flask(__name__)
 # ==========================================
 # 1. ENHANCED DATA ENGINEERING & AI LOGIC
 # ==========================================
+
+def get_ist_now():
+    """Returns current time in India Standard Time (UTC+5:30)"""
+    return datetime.now(timezone(timedelta(hours=5, minutes=30)))
+
 
 def get_live_weather():
     """Fetches real-time weather from Open-Meteo with extra metrics."""
@@ -37,7 +42,7 @@ def generate_ai_dataset():
 
     # Generate mock base data
     data = []
-    base_time = datetime.now() - timedelta(days=7)
+    base_time = get_ist_now() - timedelta(days=7)
 
     with open("final_metro_dataset.csv", "w", newline='') as f:
         writer = csv.writer(f)
@@ -196,7 +201,7 @@ def ensure_gtfs(force=False):
             writer = csv.writer(f)
             writer.writerow(['trip_id', 'station_id', 'arrival_time', 'platform', 'direction', 'final_stop', 'line'])
 
-            now_base = datetime.now()
+            now_base = get_ist_now()
             start_day = now_base.day
 
             for line, stations in CONNECTIONS.items():
@@ -259,7 +264,7 @@ def api_nearest():
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
 
     ensure_gtfs()
-    now = datetime.now()
+    now = get_ist_now()
     now_str = now.strftime('%H:%M:%S')
     one_hour_later = now + timedelta(hours=1)
     oh_str = one_hour_later.strftime('%H:%M:%S')
@@ -276,7 +281,7 @@ def api_nearest():
                 if diff < 0: continue
 
                 m, s = divmod(int(diff), 60)
-                row['eta'] = f"{m}m {s}s"
+                row['eta'] = f"{m:02d}:{s:02d}"
                 upcoming.append(row)
 
     # Sort upcoming by time
@@ -299,7 +304,7 @@ def api_nearest():
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
-    now = datetime.now()
+    now = get_ist_now()
 
     # BFS find path
     queue = [(start_id, [start_id])]
@@ -448,7 +453,7 @@ def api_plan():
                     ah, am, as_ = map(int, row['arrival_time'].split(':'))
                     arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                     diff = (arrival_dt - now).total_seconds()
-                    row['eta'] = f"{int(diff // 60)}m {int(diff % 60)}s"
+                    row['eta'] = f"{int(diff // 60):02d}:{int(diff % 60):02d}"
                 except:
                     row['eta'] = "Soon"
                 upcoming_hour.append(row)
@@ -488,27 +493,49 @@ HTML_TEMPLATE = """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
 
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #0f172a; overflow-x: hidden; }
-
         :root {
-            --glass: rgba(255, 255, 255, 0.9);
-            --border: rgba(226, 232, 240, 0.8);
+            --bg: #fdfdff;
+            --card-bg: rgba(255, 255, 255, 0.85);
+            --border: rgba(226, 232, 240, 0.5);
+            --accent: #2563eb;
+        }
+
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background: var(--bg); 
+            color: #0f172a; 
+            overflow-x: hidden; 
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(253,16%,10%,0.05) 0, transparent 50%), 
+                radial-gradient(at 50% 0%, hsla(225,39%,30%,0.03) 0, transparent 50%), 
+                radial-gradient(at 100% 0%, hsla(339,49%,30%,0.05) 0, transparent 50%);
+            background-attachment: fixed;
         }
 
         .glass-card { 
-            background: var(--glass); 
-            backdrop-filter: blur(20px); 
-            border-radius: 2rem; 
+            background: var(--card-bg); 
+            backdrop-filter: blur(16px) saturate(180%); 
+            border-radius: 1.75rem; 
             border: 1px solid var(--border); 
             padding: 24px; 
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.03); 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 10px 30px -10px rgba(0,0,0,0.05);
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
+        .glass-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(59, 130, 246, 0.2);
+            box-shadow: 0 20px 40px -20px rgba(0,0,0,0.08);
+        }
 
-        .sidebar { height: 100vh; width: 280px; position: fixed; background: white; border-right: 1px solid #f1f5f9; z-index: 50; display: flex; flex-direction: column; }
-        .main { margin-left: 280px; padding: 60px; min-height: 100vh; transition: margin 0.3s; }
+        .sidebar { 
+            height: 100vh; width: 260px; position: fixed; 
+            background: rgba(255, 255, 255, 0.8); 
+            backdrop-filter: blur(40px);
+            border-right: 1px solid #f1f5f9; z-index: 50; 
+            display: flex; flex-direction: column; 
+        }
+        .main { margin-left: 260px; padding: 48px; min-height: 100vh; transition: all 0.3s; }
 
-        /* Mobile Adjustments */
         @media (max-width: 1024px) {
             .sidebar { display: none; }
             .main { margin-left: 0; padding: 24px; padding-bottom: 120px; }
@@ -516,54 +543,53 @@ HTML_TEMPLATE = """
         }
 
         .mobile-nav { 
-            display: none; position: fixed; bottom: 0; left: 0; right: 0; 
-            background: white; border-top: 1px solid #f1f5f9; z-index: 100;
-            padding: 12px 20px 30px 20px; justify-content: space-around;
-            box-shadow: 0 -10px 40px rgba(0,0,0,0.05);
+            display: none; position: fixed; bottom: 20px; left: 20px; right: 20px; 
+            background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(20px);
+            border-radius: 20px; z-index: 100;
+            padding: 10px; justify-content: space-around;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
         }
-
-        .mobile-link {
-            display: flex; flex-direction: column; align-items: center; gap: 4px;
-            color: #94a3b8; font-weight: 800; text-transform: uppercase; font-size: 8px;
-            letter-spacing: 0.1em; transition: all 0.3s;
-        }
-        .mobile-link.active { color: #0f172a; }
-        .mobile-link i { width: 20px; height: 20px; }
 
         .nav-link { 
-            display: flex; align-items: center; gap: 12px; padding: 14px 24px; 
-            border-radius: 20px; color: #64748b; font-weight: 700; 
+            display: flex; align-items: center; gap: 12px; padding: 12px 20px; 
+            border-radius: 12px; color: #64748b; font-weight: 700; 
             transition: all 0.3s; cursor: pointer; text-transform: uppercase; 
-            font-size: 11px; letter-spacing: 0.05em; 
+            font-size: 10px; letter-spacing: 0.05em; 
         }
-        .nav-link:hover { background: #f8fafc; color: #0f172a; }
-        .nav-link.active { 
-            background: #0f172a; color: white; 
-            box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.2); 
-        }
+        .nav-link.active { background: #0f172a; color: white; }
 
         .tab-content { display: none; }
-        .tab-content.active { display: block; animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .tab-content.active { display: block; animation: contentFade 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes contentFade { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
 
-        .station-node { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05)); }
-        .station-node:hover { stroke-width: 6; r: 10; cursor: pointer; }
-        .station-node.selected { stroke-width: 10 !important; r: 12 !important; filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.3)); }
-        .station-node.near-user { stroke: #10b981 !important; stroke-width: 8; r: 9; }
-
-        .station-label { 
-            font-size: 8px; font-weight: 900; fill: #64748b; 
-            text-transform: uppercase; letter-spacing: 0.1em; 
-            pointer-events: none; paint-order: stroke; 
-            stroke: #ffffff; stroke-width: 4px; 
+        .sync-clock {
+            background: #000;
+            color: #00ff00;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 14px;
+            box-shadow: inset 0 0 10px rgba(0,255,0,0.2);
         }
 
-        .action-card { transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor: pointer; }
-        .action-card:hover { transform: translateY(-8px); box-shadow: 0 30px 40px -10px rgba(0, 0, 0, 0.05); }
+        .station-node { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .station-node:hover { stroke-width: 8; r: 10; }
+        .station-node.selected { stroke-width: 12 !important; r: 14 !important; }
 
-        #network-svg { 
-            background: #ffffff;
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 24px;
         }
+        .bento-col-4 { grid-column: span 4; }
+        .bento-col-8 { grid-column: span 8; }
+        .bento-col-6 { grid-column: span 6; }
+        @media (max-width: 768px) {
+            .bento-grid { grid-template-columns: 1fr; }
+            .bento-col-4, .bento-col-8, .bento-col-6 { grid-column: span 1; }
+        }
+
+        #network-svg { background: transparent; }
     </style>
 </head>
 <body>
@@ -646,7 +672,14 @@ HTML_TEMPLATE = """
                     </div>
                     <div class=\"p-10\">
                         <table class=\"w-full text-left\">
-                            <thead><tr class=\"text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100\"><th class=\"pb-8\">Vector</th><th class=\"pb-8\">Target Node</th><th class=\"pb-8\">Terminal</th><th class=\"pb-8 text-right\">Synchronization</th></tr></thead>
+                            <thead>
+                                <tr class=\"text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100\">
+                                    <th class=\"pb-8\">Vector</th>
+                                    <th class=\"pb-8\">Target Node</th>
+                                    <th class=\"pb-8\">Terminal</th>
+                                    <th class=\"pb-8 text-right\">Countdown (MM:SS)</th>
+                                </tr>
+                            </thead>
                             <tbody id=\"board-rows\" class=\"divide-y divide-slate-50\"></tbody>
                         </table>
                         <div id=\"board-loading\" class=\"py-24 text-center\">
@@ -865,8 +898,19 @@ HTML_TEMPLATE = """
 
         function updateClock() {
             const now = new Date();
-            document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
-            document.getElementById('ampm').innerText = now.getHours() >= 12 ? 'PM' : 'AM';
+            // Force 12h formatting for the clock span to avoid "13:17:21 PM"
+            let options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+            let timeStr = now.toLocaleTimeString('en-US', options);
+            // Split to get just the time and the AM/PM
+            let parts = timeStr.split(' ');
+            if (parts.length === 2) {
+                document.getElementById('clock').innerText = parts[0];
+                document.getElementById('ampm').innerText = parts[1];
+            } else {
+                // Fallback if formatting differs
+                document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+                document.getElementById('ampm').innerText = now.getHours() >= 12 ? 'PM' : 'AM';
+            }
             document.getElementById('date').innerText = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
         }
         setInterval(updateClock, 1000); updateClock();
@@ -1034,10 +1078,20 @@ HTML_TEMPLATE = """
                     const tr = document.createElement('tr');
                     tr.className = "group hover:bg-slate-50 transition-colors";
                     tr.innerHTML = `
-                        <td class=\"py-5\"><div class=\"w-1.5 h-8 rounded-full ${lineCol} shadow-sm group-hover:scale-y-125 transition-transform\"></div></td>
-                        <td class=\"py-5\">\n                            <div class=\"flex flex-col\">\n                                <span class=\"font-black text-slate-800 text-[12px] tracking-tight\">${t.final_stop}</span>\n                                <span class=\"text-[8px] font-bold text-slate-400 uppercase tracking-widest\">${t.line} Line Matrix</span>\n                            </div>\n                        </td>
-                        <td class=\"py-5\"><span class=\"px-3 py-1 bg-slate-900 text-white rounded-lg text-[9px] font-black tracking-widest border-2 border-slate-800\">PLATFORM ${t.platform}</span></td>
-                        <td class=\"py-5 text-right font-black\">\n                            <div class=\"flex flex-col items-end\">\n                                <span class=\"text-lg text-blue-600 tabular-nums\">${t.arrival_time}</span>\n                                <span class=\"text-[9px] text-slate-400 uppercase tracking-widest\">IN ${t.eta}</span>\n                            </div>\n                        </td>`;
+                        <td class="py-5"><div class="w-1.5 h-8 rounded-full ${lineCol} shadow-sm group-hover:scale-y-125 transition-transform"></div></td>
+                        <td class="py-5">
+                            <div class="flex flex-col">
+                                <span class="font-black text-slate-800 text-[12px] tracking-tight">${t.final_stop}</span>
+                                <span class="text-[8px] font-bold text-slate-400 uppercase tracking-widest">${t.line} Line Matrix</span>
+                            </div>
+                        </td>
+                        <td class="py-5"><span class="px-3 py-1 bg-slate-900 text-white rounded-lg text-[9px] font-black tracking-widest border-2 border-slate-800">PLATFORM ${t.platform}</span></td>
+                        <td class="py-5 text-right font-black">
+                            <div class="flex flex-col items-end">
+                                <span class="sync-clock">${t.eta}</span>
+                                <span class="text-[8px] text-slate-400 uppercase tracking-widest mt-1">Countdown Mode</span>
+                            </div>
+                        </td>`;
                     rows.appendChild(tr);
                 });
             } catch (err) {
@@ -1161,21 +1215,21 @@ HTML_TEMPLATE = """
                 const sched = document.getElementById('schedule-list'); sched.innerHTML = '';
                 data.upcoming_hour.forEach(u => {
                     const div = document.createElement('div'); div.className = 'flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-100 shadow-sm';
-                    div.innerHTML = `
-                        <div class=\"flex items-center gap-4\">
-                            <div class=\"flex flex-col\">
-                                <span class=\"text-[10px] font-black text-slate-400 uppercase tracking-widest\">Platform</span>
-                                <span class=\"font-black text-slate-900\">P${u.platform}</span>
+                        div.innerHTML = `
+                        <div class="flex items-center gap-4">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Platform</span>
+                                <span class="font-black text-slate-900">P${u.platform}</span>
                             </div>
-                            <div class=\"w-px h-8 bg-slate-100\"></div>
-                            <div class=\"flex flex-col\">
-                                <span class=\"text-sm font-black text-slate-700\">${u.final_stop}</span>
-                                <span class=\"text-[9px] font-bold text-slate-400 uppercase\">${u.line} Line</span>
+                            <div class="w-px h-8 bg-slate-100"></div>
+                            <div class="flex flex-col">
+                                <span class="text-sm font-black text-slate-700">${u.final_stop}</span>
+                                <span class="text-[9px] font-bold text-slate-400 uppercase">${u.line} Line</span>
                             </div>
                         </div>
-                        <div class=\"text-right\">
-                            <p class=\"font-black text-blue-600 text-lg tabular-nums leading-none\">${u.arrival_time}</p>
-                            <p class=\"text-[9px] font-bold text-slate-400 uppercase mt-1\">in ${u.eta}</p>
+                        <div class="text-right">
+                            <p class="sync-clock mb-1">${u.eta}</p>
+                            <p class="text-[9px] font-bold text-slate-400 uppercase">Synchronization</p>
                         </div>`;
                     sched.appendChild(div);
                 });
