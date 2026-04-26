@@ -24,11 +24,29 @@ def get_live_weather():
     try:
         url = "https://api.open-meteo.com/v1/forecast?latitude=17.3850&longitude=78.4867&current_weather=true&hourly=relative_humidity_2m,visibility"
         data = requests.get(url, timeout=2).json()
+
+        # Comprehensive WMO Code Mapping
+        wmo_mapping = {
+            0: "Sunny", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
+            45: "Foggy", 48: "Rime Fog", 51: "Light Drizzle", 53: "Moderate Drizzle",
+            55: "Dense Drizzle", 61: "Slight Rain", 63: "Moderate Rain", 65: "Heavy Rain",
+            71: "Slight Snow", 73: "Moderate Snow", 75: "Heavy Snow", 80: "Rain Showers",
+            95: "Thunderstorm"
+        }
+        code = data['current_weather']['weathercode']
+        condition = wmo_mapping.get(code, "Cloudy")
+
+        # Get current hour index (IST)
+        ist_now = get_ist_now()
+        h_idx = ist_now.hour
+
         return {
             'temp': data['current_weather']['temperature'],
-            'condition': "Sunny" if data['current_weather']['weathercode'] == 0 else "Cloudy",
-            'humidity': data['hourly']['relative_humidity_2m'][0],
-            'visibility': data['hourly']['visibility'][0] / 1000,  # km
+            'condition': condition,
+            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(
+                data['hourly']['relative_humidity_2m']) else 45,
+            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(
+                data['hourly']['visibility']) else 10,
             'aqi': random.randint(30, 70)
         }
     except:
@@ -88,14 +106,21 @@ def generate_ai_dataset():
     return True
 
 
-def predict_load_ai(station_name, hour, is_weekend=False):
-    """Predicts load using the logic from the trained dataset formula."""
+def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
+    """Predicts load using the logic from the trained dataset formula with optional weather influence."""
     is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
     is_it_hub = 1 if station_name in ['Hitech City', 'Madhapur', 'Raidurg'] else 0
     is_festival = 0  # Default for live
 
     score = 50 + (is_peak * 100) + (is_it_hub * 80) + (is_festival * 120)
     if is_weekend: score -= 20
+
+    # Weather influence: People flock to AC Metro during high heat or seek shelter during rain
+    if weather:
+        if "Rain" in weather.get('condition', ''):
+            score += 25
+        if weather.get('temp', 30) > 35:
+            score += 15
 
     if score > 200: return "High", "🔴 High Rush"
     if score > 140: return "M-High", "🟡 Rush but manageable"
@@ -288,7 +313,8 @@ def api_nearest():
     upcoming.sort(key=lambda x: x['arrival_time'])
 
     weather = get_live_weather()
-    load_val, load_label = predict_load_ai(name, now.hour)
+    is_weekend = now.weekday() >= 5
+    load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
 
     return jsonify({
         'station': nearest,
@@ -390,7 +416,9 @@ def api_plan():
 
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
-    load_val, _ = predict_load_ai(start_station_name, now.hour)
+    weather = get_live_weather()
+    is_weekend = now.weekday() >= 5
+    load_val, _ = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
 
     # INTERCHANGE & GUIDE LOGIC (Mirrored from React)
     interchanges = []
@@ -477,6 +505,63 @@ def api_plan():
     })
 
 
+@app.route('/api/live-map')
+def api_live_map():
+    ensure_gtfs()
+    now_dt = get_ist_now()
+    now_str = now_dt.strftime('%H:%M:%S')
+
+    active_trains = []
+
+    # Read trips and group by trip_id
+    trips_by_id = {}
+    with open(GTFS_FILE, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            tid = row['trip_id']
+            if tid not in trips_by_id:
+                trips_by_id[tid] = []
+            trips_by_id[tid].append(row)
+
+    for tid, stops in trips_by_id.items():
+        # Sort stops by arrival time
+        stops.sort(key=lambda x: x['arrival_time'])
+
+        # Find if train is currently between two stops
+        for i in range(len(stops) - 1):
+            s1 = stops[i]
+            s2 = stops[i + 1]
+
+            if s1['arrival_time'] <= now_str < s2['arrival_time']:
+                # Calculate progress
+                try:
+                    t1_parts = list(map(int, s1['arrival_time'].split(':')))
+                    t2_parts = list(map(int, s2['arrival_time'].split(':')))
+
+                    t1 = now_dt.replace(hour=t1_parts[0], minute=t1_parts[1], second=t1_parts[2])
+                    t2 = now_dt.replace(hour=t2_parts[0], minute=t2_parts[1], second=t2_parts[2])
+
+                    total_duration = (t2 - t1).total_seconds()
+                    elapsed = (now_dt - t1).total_seconds()
+
+                    progress = max(0, min(1, elapsed / total_duration))
+
+                    active_trains.append({
+                        'trip_id': tid,
+                        'line': s1['line'],
+                        'from_id': s1['station_id'],
+                        'to_id': s2['station_id'],
+                        'progress': progress,
+                        'direction': s1['direction'],
+                        'final_stop': s1['final_stop']
+                    })
+                    break  # Only one segment per trip
+                except:
+                    continue
+
+    return jsonify({'trains': active_trains})
+
+
 # ==========================================
 # 5. UI TEMPLATE (UPGRADED)
 # ==========================================
@@ -550,17 +635,29 @@ HTML_TEMPLATE = """
 
         .sidebar-toggle {
             position: fixed;
-            top: 24px;
-            left: 24px;
-            z-index: 100;
-            background: white;
-            border: 1px solid #f1f5f9;
-            padding: 12px;
+            top: 20px;
+            left: 280px;
+            z-index: 1000;
+            background: #0f172a;
+            color: white;
+            border: none;
+            width: 42px;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             display: none; /* Desktop only */
+        }
+        .sidebar-toggle:hover {
+            transform: scale(1.05);
+            background: #1e293b;
+        }
+        .sidebar-toggle.sidebar-collapsed {
+            left: 20px;
         }
         @media (min-width: 1025px) {
             .sidebar-toggle { display: flex; }
@@ -606,6 +703,12 @@ HTML_TEMPLATE = """
         .station-node { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
         .station-node:hover { stroke-width: 8; r: 10; }
         .station-node.selected { stroke-width: 12 !important; r: 14 !important; }
+
+        .user-pin-outer { animation: sonar 2s infinite; }
+        @keyframes sonar {
+            0% { r: 6; opacity: 0.8; }
+            100% { r: 24; opacity: 0; }
+        }
 
         .bento-grid {
             display: grid;
@@ -725,10 +828,32 @@ HTML_TEMPLATE = """
                 <div class=\"space-y-8\">
                     <div class=\"glass-card action-card bg-slate-900 text-white border-none p-10 overflow-hidden relative shadow-2xl shadow-slate-900/10\">
                         <div class=\"absolute -right-5 -top-5 w-40 h-40 bg-blue-500/20 rounded-full blur-[60px]\"></div>
-                        <i data-lucide=\"qr-code\" class=\"mb-8 opacity-40\" size=\"32\"></i>
-                        <h4 class=\"text-xl font-black mb-3 relative z-10 tracking-tight\">Flux Pass Hub</h4>
-                        <p class=\"text-xs text-white/50 mb-10 relative z-10 font-bold uppercase tracking-widest\">Generate digital tokens for seamless network entry.</p>
-                        <button class=\"w-full py-5 bg-white text-slate-900 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl\">Open Terminal</button>
+                        <i data-lucide=\"ticket\" class=\"mb-8 opacity-40\" size=\"32\"></i>
+                        <h4 class=\"text-xl font-black mb-3 relative z-10 tracking-tight\">Book Metro Ticket</h4>
+                        <p class=\"text-xs text-white/50 mb-10 relative z-10 font-bold uppercase tracking-widest\">Instant checkout via preferred UPI gateway.</p>
+                        <div class=\"space-y-4 relative z-10\">
+                            <button onclick=\"toggleUPISelection()\" id=\"pay-btn-main\" class=\"w-full py-5 bg-white text-slate-900 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-3\">
+                                <i data-lucide=\"smartphone\" size=\"14\"></i> Select Payment App
+                            </button>
+                            <div id=\"upi-selection\" class=\"hidden grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2 duration-300\">
+                                <button onclick=\"payWithUPI('Google Pay')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-white rounded-md flex items-center justify-center p-1\"><i data-lucide=\"wallet\" class=\"text-slate-900\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">G-Pay</span>
+                                </button>
+                                <button onclick=\"payWithUPI('PhonePe')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-purple-500 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"zap\" class=\"text-white\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">PhonePe</span>
+                                </button>
+                                <button onclick=\"payWithUPI('Paytm')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-sky-400 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"credit-card\" class=\"text-white\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">Paytm</span>
+                                </button>
+                                <button onclick=\"payWithUPI('Others')\" class=\"p-4 bg-white/10 hover:bg-white/20 rounded-xl flex flex-col items-center gap-2 transition-all border border-white/5\">
+                                    <div class=\"w-6 h-6 bg-slate-700 rounded-md flex items-center justify-center p-1\"><i data-lucide=\"qr-code\" class=\"text-white\" size=\"14\"></i></div>
+                                    <span class=\"text-[8px] font-black uppercase\">Others</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class=\"glass-card action-card border-none p-10 bg-white overflow-hidden relative shadow-2xl shadow-slate-200/50\">
                         <div class=\"absolute -right-5 -top-5 w-40 h-40 bg-indigo-50 rounded-full blur-[60px]\"></div>
@@ -748,6 +873,8 @@ HTML_TEMPLATE = """
                 <svg id=\"network-svg\" viewBox=\"0 0 1100 700\" class=\"w-full h-full cursor-grab active:cursor-grabbing\">
                     <g id=\"map-lines\"></g>
                     <g id=\"map-stations\"></g>
+                    <g id=\"map-trains\"></g>
+                    <g id=\"map-user-pin\"></g>
                 </svg>
                 <div id=\"map-overlay\" class=\"absolute top-0 right-0 h-full w-full lg:w-[400px] translate-x-full z-20 transition-transform duration-500 ease-in-out bg-white shadow-[-20px_0_50px_-10px_rgba(0,0,0,0.1)] border-l border-slate-100\">
                     <div class=\"h-full flex flex-col p-6 lg:p-10 overflow-hidden relative\">
@@ -913,6 +1040,79 @@ HTML_TEMPLATE = """
         lucide.createIcons();
         const stations = {{ ALL_STATIONS | tojson }};
 
+        let lastCalculatedFare = 20;
+
+        function toggleUPISelection() {
+            const sel = document.getElementById('upi-selection');
+            const btn = document.getElementById('pay-btn-main');
+            const isHidden = sel.classList.contains('hidden');
+
+            sel.classList.toggle('hidden');
+            btn.innerHTML = isHidden ? '<i data-lucide="chevron-up" size="14"></i> Cancel Selection' : '<i data-lucide="smartphone" size="14"></i> Select Payment App';
+            lucide.createIcons();
+        }
+
+        function payWithUPI(appName) {
+            const amount = lastCalculatedFare;
+            const upiId = "metro@upi"; // Mock Merchant ID
+            const merchantName = "HydMetro Authority";
+            const transactionNote = "Metro Ticket Booking";
+
+            // Standard UPI Deep link
+            const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+
+            console.log(`Initiating ${appName} payment for ₹${amount}...`);
+
+            // In a real device environment, this triggers the UPI app selector or the specific app
+            window.location.href = upiUrl;
+
+            // UI Feedback
+            alert(`Redirecting to ${appName} to pay ₹${amount}. \n(Note: UPI deep links require a mobile device with a UPI app installed)`);
+        }
+
+        function updateUserPin(lat, lng) {
+            const g = document.getElementById('map-user-pin');
+            let pin = document.getElementById('user-location-pin');
+
+            // Geographic mapping based on station distribution
+            const lats = stations.map(s => s.lat);
+            const lngs = stations.map(s => s.lng);
+            const xs = stations.map(s => s.x);
+            const ys = stations.map(s => s.y);
+
+            const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+            const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+            // Interpolate coordinate mapping
+            const x = minX + (lng - minLng) / (maxLng - minLng) * (maxX - minX);
+            const y = minY + (maxLat - lat) / (maxLat - minLat) * (maxY - minY);
+
+            if(!pin) {
+                pin = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                pin.id = 'user-location-pin';
+                pin.style.transition = 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)';
+
+                const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                outer.setAttribute('r', 15);
+                outer.setAttribute('fill', '#3b82f6');
+                outer.setAttribute('class', 'user-pin-outer opacity-25');
+
+                const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                inner.setAttribute('r', 6);
+                inner.setAttribute('fill', '#2563eb');
+                inner.setAttribute('stroke', 'white');
+                inner.setAttribute('stroke-width', '2');
+
+                pin.appendChild(outer);
+                pin.appendChild(inner);
+                g.appendChild(pin);
+            }
+
+            pin.setAttribute('transform', `translate(${x}, ${y})`);
+        }
+
         function toggleSidebar() {
             const sidebar = document.querySelector('.sidebar');
             const main = document.getElementById('main-content');
@@ -920,6 +1120,7 @@ HTML_TEMPLATE = """
 
             sidebar.classList.toggle('collapsed');
             main.classList.toggle('full-width');
+            btn.classList.toggle('sidebar-collapsed');
 
             const isCollapsed = sidebar.classList.contains('collapsed');
             btn.innerHTML = isCollapsed ? '<i data-lucide="panel-left-open"></i>' : '<i data-lucide="panel-left-close"></i>';
@@ -1079,6 +1280,9 @@ HTML_TEMPLATE = """
                 }
 
                 document.getElementById('board-loading').classList.remove('hidden');
+
+                if (lat && lng) updateUserPin(lat, lng);
+
                 const body = stationId ? { station_id: stationId } : { lat, lng };
                 const res = await fetch('/api/nearest', { 
                     method: 'POST', 
@@ -1098,7 +1302,7 @@ HTML_TEMPLATE = """
                 if (!stationId) {
                     selector.value = data.station.id;
                 }
-                document.getElementById('weather-detail').innerText = `H: ${data.weather.humidity}% | V: ${data.weather.visibility}KM`;
+                document.getElementById('weather-detail').innerText = `Humidity: ${data.weather.humidity}% | Visibility: ${data.weather.visibility.toFixed(1)}km`;
 
                 const lCard = document.getElementById('load-card');
                 const loadCol = data.load_val === 'High' ? '#ef4444' : 
@@ -1208,6 +1412,8 @@ HTML_TEMPLATE = """
                 document.getElementById('route-dest-time').innerText = data.arrival_at_dest;
                 document.getElementById('route-rec').innerText = data.recommendation;
 
+                lastCalculatedFare = data.fare;
+
                 // Add Metrics Grid
                 const seq = document.getElementById('route-seq'); seq.innerHTML = '';
                 const metricsDiv = document.createElement('div');
@@ -1312,7 +1518,64 @@ HTML_TEMPLATE = """
             });
         }
 
-        setupMap(); initGeo(); initPickers();
+        async function updateLiveTrains() {
+            try {
+                const res = await fetch('/api/live-map');
+                const data = await res.json();
+                const g = document.getElementById('map-trains');
+                const existingTrains = Array.from(g.querySelectorAll('.train-icon'));
+                const seenIds = new Set();
+
+                data.trains.forEach(t => {
+                    seenIds.add(t.trip_id);
+                    const s1 = stations.find(s => s.id === t.from_id);
+                    const s2 = stations.find(s => s.id === t.to_id);
+                    if(!s1 || !s2) return;
+
+                    const curX = s1.x + (s2.x - s1.x) * t.progress;
+                    const curY = s1.y + (s2.y - s1.y) * t.progress;
+
+                    let train = g.querySelector(`[data-trip-id="${t.trip_id}"]`);
+                    if(!train) {
+                        train = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        train.setAttribute('class', 'train-icon');
+                        train.setAttribute('data-trip-id', t.trip_id);
+                        train.style.transition = 'transform 2.1s linear'; // Slightly longer than interval to hide latency
+
+                        const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#22c55e';
+
+                        const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        outer.setAttribute('r', 12);
+                        outer.setAttribute('fill', color);
+                        outer.setAttribute('class', 'animate-pulse opacity-25');
+
+                        const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        inner.setAttribute('r', 6);
+                        inner.setAttribute('fill', color);
+                        inner.setAttribute('stroke', '#fff');
+                        inner.setAttribute('stroke-width', '2');
+
+                        train.appendChild(outer);
+                        train.appendChild(inner);
+                        g.appendChild(train);
+
+                        // Initial position without transition
+                        train.style.transition = 'none';
+                        train.setAttribute('transform', `translate(${curX}, ${curY})`);
+                        setTimeout(() => train.style.transition = 'transform 2.1s linear', 50);
+                    } else {
+                        train.setAttribute('transform', `translate(${curX}, ${curY})`);
+                    }
+                });
+
+                existingTrains.forEach(t => {
+                    if(!seenIds.has(t.getAttribute('data-trip-id'))) t.remove();
+                });
+            } catch (e) {}
+        }
+        setInterval(updateLiveTrains, 2000);
+
+        setupMap(); initGeo(); initPickers(); updateLiveTrains();
     </script>
 </body>
 </html>
