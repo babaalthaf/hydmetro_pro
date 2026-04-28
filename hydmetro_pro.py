@@ -323,6 +323,11 @@ def api_nearest():
         nearest = min(STATIONS_LIST, key=lambda s: haversine(lat, lng, s['lat'], s['lng']))
         dist = haversine(lat, lng, nearest['lat'], nearest['lng'])
     
+    # Urban Walking Adjustment: approx 1.35x crow-flies distance for city streets
+    walk_dist = dist * 1.35
+    walking_mins = int((walk_dist / 5.0) * 60) # Assume 5km/h walking speed
+    if walking_mins < 1: walking_mins = 1
+    
     name = nearest.get('name_alias', nearest['name'])
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
     
@@ -382,6 +387,8 @@ def api_nearest():
     return jsonify({
         'station': nearest, 
         'distance': round(dist, 2),
+        'walk_dist': round(walk_dist, 2),
+        'walking_mins': walking_mins,
         'upcoming': upcoming, 
         'load_val': load_val, 
         'load_label': load_label,
@@ -1100,10 +1107,16 @@ HTML_TEMPLATE = """
                              Live Near Metro <span id="near-dist" class="text-blue-500 font-bold border-l border-slate-200 pl-2">-- km</span>
                         </p>
                         <h3 id="near-name" class="text-[11px] lg:text-sm font-black text-slate-800 truncate">Locating...</h3>
+                        <p id="near-walk-time" class="text-[8px] font-bold text-emerald-600 mt-0.5 uppercase tracking-widest hidden">-- min walk</p>
                     </div>
-                    <button onclick="manualRefreshGeo()" class="absolute right-2 top-2 p-1.5 opacity-0 group-hover:opacity-100 bg-white/50 backdrop-blur rounded-lg border border-slate-100 transition-all text-blue-600 hover:bg-blue-50">
-                        <i data-lucide="refresh-cw" size="12"></i>
-                    </button>
+                    <div class="absolute right-2 top-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onclick="manualRefreshGeo()" class="p-1.5 bg-white shadow-sm rounded-lg border border-slate-100 text-blue-600 hover:bg-blue-50" title="Refresh GPS">
+                            <i data-lucide="refresh-cw" size="12"></i>
+                        </button>
+                        <button id="nav-btn" onclick="openGoogleMaps()" class="p-1.5 bg-slate-900 text-white shadow-sm rounded-lg hover:bg-black hidden" title="Google Maps Directions">
+                            <i data-lucide="navigation" size="12"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="glass-card flex p-4 lg:p-6 items-center gap-4 lg:gap-6 border-slate-200">
                     <div class="w-10 h-10 lg:w-14 lg:h-14 bg-orange-50 text-orange-600 rounded-xl lg:rounded-2xl flex items-center justify-center shrink-0"><i data-lucide="waves" size="18"></i></div>
@@ -1554,6 +1567,16 @@ HTML_TEMPLATE = """
         let simulationHour = -1;
         let activeUpdateInterval = null;
         let currentPlannedRoute = null;
+        let lastUserLoc = null;
+        let lastStationLoc = null;
+
+        function openGoogleMaps() {
+            if (!lastStationLoc) return;
+            const dest = `${lastStationLoc.lat},${lastStationLoc.lng}`;
+            const origin = lastUserLoc ? `${lastUserLoc.lat},${lastUserLoc.lng}` : "";
+            const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=walking`;
+            window.open(url, '_blank');
+        }
 
         // Persistence Logic for Saved Vectors
         function loadSavedVectors() {
@@ -2212,8 +2235,21 @@ HTML_TEMPLATE = """
                 if (!res.ok) throw new Error("API Offline");
                 const data = await res.json();
                 
+                lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
+                if (lat && lng) lastUserLoc = { lat, lng };
+
                 document.getElementById('near-name').innerText = data.station.name;
                 document.getElementById('near-dist').innerText = data.distance + ' km away';
+                
+                const walkTimeEl = document.getElementById('near-walk-time');
+                if (walkTimeEl) {
+                    walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
+                    walkTimeEl.classList.remove('hidden');
+                }
+                
+                const navBtn = document.getElementById('nav-btn');
+                if (navBtn) navBtn.classList.remove('hidden');
+
                 document.getElementById('near-metro-live').innerText = data.station.name;
                 if (document.getElementById('near-metro-mob')) {
                     document.getElementById('near-metro-mob').innerText = 'Near ' + data.station.name + ' Hub';
