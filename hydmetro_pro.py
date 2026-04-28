@@ -194,8 +194,8 @@ STATIONS_LIST = [
     {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'x': 1200, 'y': 500, 'lat': 17.4335, 'lng': 78.5020},
     {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'x': 1200, 'y': 600, 'lat': 17.4215, 'lng': 78.5030},
     {'id': 'G6', 'name': 'RTC X Roads', 'line': 'Green', 'x': 1200, 'y': 700, 'lat': 17.4080, 'lng': 78.5040},
-    {'id': 'G7', 'name': 'Chikkadpally', 'line': 'Green', 'x': 1200, 'y': 800, 'lat': 17.3995, 'lng': 78.4950},
-    {'id': 'G8', 'name': 'Narayanaguda', 'line': 'Green', 'x': 1220, 'y': 900, 'lat': 17.3993, 'lng': 78.4894},
+    {'id': 'G7', 'name': 'Chikkadpally', 'line': 'Green', 'x': 1200, 'y': 800, 'lat': 17.4025, 'lng': 78.4965},
+    {'id': 'G8', 'name': 'Narayanaguda', 'line': 'Green', 'x': 1220, 'y': 900, 'lat': 17.3964, 'lng': 78.4893},
     {'id': 'G9', 'name': 'MGBS', 'line': 'Green', 'x': 1240, 'y': 960, 'lat': 17.3776, 'lng': 78.4815, 'name_alias': 'MGBS'}
 ]
 
