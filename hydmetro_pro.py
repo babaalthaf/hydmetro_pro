@@ -653,47 +653,6 @@ def api_plan():
                      "Moderate volume. Manageable rush." if load_val == "M-High" else \
                      "Peak congestion. AI suggests waiting for dip.") + weather_advice
 
-    # Personalized Recommendations List
-    personalized_advices = []
-    
-    if load_pct > 75:
-        personalized_advices.append({
-            'type': 'congestion',
-            'title': 'High Density Alert',
-            'text': 'Severe congestion predicted. Suggest taking a 15-min earlier train for a guaranteed seat.',
-            'icon': 'users'
-        })
-    elif load_pct > 50:
-        personalized_advices.append({
-            'type': 'congestion',
-            'title': 'Moderate Flux',
-            'text': 'Steady boarding volume. Board mid-train coaches for less crowding.',
-            'icon': 'info'
-        })
-
-    if weather.get('temp', 30) > 36:
-        personalized_advices.append({
-            'type': 'weather',
-            'title': 'Heat Protocol',
-            'text': 'High external temperatures. Station cooling optimized; stay hydrated at platform kiosks.',
-            'icon': 'thermometer'
-        })
-    elif "Rain" in weather.get('condition', ''):
-        personalized_advices.append({
-            'type': 'weather',
-            'title': 'Rain Advisory',
-            'text': 'Slippery floors possible at terminal exits. Multi-modal links might be delayed.',
-            'icon': 'cloud-rain'
-        })
-    
-    if is_peak == "Peak Hour" and any(n in [s['name'] for s in sequence] for n in ['Hitech City', 'Madhapur', 'Raidurg']):
-         personalized_advices.append({
-            'type': 'it-hub',
-            'title': 'Tech Hub Rush',
-            'text': 'Heavy IT corridor movement detected. Use the dedicated express entry for faster access.',
-            'icon': 'zap'
-        })
-
     # User Request: Upcoming trains for next 1 hour from source
     one_hour_later = now + timedelta(hours=1)
     now_str = now.strftime('%H:%M:%S')
@@ -759,7 +718,6 @@ def api_plan():
         'total_km': round(total_km, 2),
         'fare': calculated_fare,
         'recommendation': recommendation,
-        'personalized_advices': personalized_advices,
         'load': round(load_pct, 1),
         'peak_intensity': peak_intensity,
         'guides': guides,
@@ -1124,7 +1082,6 @@ HTML_TEMPLATE = """
     <div class="mobile-nav">
         <div onclick="showTab('home')" class="mobile-link active" id="mob-home"><i data-lucide="home"></i><span>Home</span></div>
         <div onclick="showTab('map')" class="mobile-link" id="mob-map"><i data-lucide="map-pinned"></i><span>Map</span></div>
-        <div onclick="showTab('history')" class="mobile-link" id="mob-history"><i data-lucide="history"></i><span>History</span></div>
         <div onclick="showTab('tickets')" class="mobile-link" id="mob-tickets"><i data-lucide="qr-code"></i><span>Tickets</span></div>
         <div onclick="showTab('routes')" class="mobile-link" id="mob-routes"><i data-lucide="route"></i><span>Planner</span></div>
         <div onclick="showTab('feedback')" class="mobile-link" id="mob-feedback"><i data-lucide="heart"></i><span>Feed</span></div>
@@ -1435,11 +1392,8 @@ HTML_TEMPLATE = """
                 <div id="route-output" class="hidden space-y-6 pb-12">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-3">
-                            <button onclick="saveCurrentVector()" id="save-vector-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-slate-200 transition-all">
+                            <button onclick="saveCurrentVector()" id="save-vector-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">
                                 <i data-lucide="star" size="14"></i> Save Vector
-                            </button>
-                            <button onclick="quickCompleteJourney()" id="complete-journey-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">
-                                <i data-lucide="check-circle" size="14"></i> Complete Journey
                             </button>
                             <button onclick="shareRoute()" class="p-3 bg-slate-100 rounded-2xl text-slate-400 hover:text-slate-600 transition-all"><i data-lucide="share-2" size="18"></i></button>
                         </div>
@@ -1493,10 +1447,6 @@ HTML_TEMPLATE = """
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div id="personalized-recommendations" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        <!-- Personalized items injected here -->
                     </div>
 
                     <div class="glass-card p-0 overflow-hidden border-none shadow-2xl bg-white rounded-[40px]">
@@ -1581,7 +1531,7 @@ HTML_TEMPLATE = """
         <div id="tab-tickets" class="tab-content">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-6 border-b pb-4 border-slate-200">
                 <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
-                   <div class="w-16 h-16 bg-slate-900 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-slate-900/20"><i data-lucide="qr-code" size="32"></i></div>
+                   <div class="w-16 h-16 bg-slate-900 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-slate-900/20"><i data-lucide="pocket" size="32"></i></div>
                    <div>
                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Digital Vault</h2>
                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center lg:justify-start gap-2">
@@ -1592,47 +1542,34 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <div class="max-w-2xl mx-auto">
-                <div class="flex items-center justify-between mb-8">
-                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
-                        <i data-lucide="zap" class="text-blue-600" size="14"></i> Active Boarding Pass
-                    </h4>
-                </div>
-                
-                <div id="active-ticket-container" class="perspective-1000 mb-12">
-                    <!-- Active ticket injected here -->
-                </div>
-
-                <div class="glass-card bg-slate-50 border-none p-10 text-center">
-                    <i data-lucide="archive" class="mx-auto mb-4 text-slate-300" size="32"></i>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Past journeys are archived in History</p>
-                    <button onclick="showTab('history')" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all">View All History</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="tab-history" class="tab-content">
-             <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6 border-b pb-6 border-slate-200">
-                <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
-                    <div class="w-16 h-16 bg-slate-800 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-slate-800/20"><i data-lucide="history" size="32"></i></div>
-                    <div>
-                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Journey History</h2>
-                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Chronological archive of all transit vectors</p>
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div class="lg:col-span-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
+                            <i data-lucide="zap" class="text-blue-600" size="14"></i> Active Boarding Pass
+                        </h4>
+                    </div>
+                    
+                    <div id="active-ticket-container" class="perspective-1000">
+                        <!-- Active ticket injected here -->
+                        <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-32 text-slate-300">
+                             <div class="p-6 bg-slate-50 rounded-full mb-6"><i data-lucide="qr-code" size="48" class="opacity-10"></i></div>
+                             <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Vault Empty</p>
+                             <p class="text-[9px] font-bold text-slate-300 mt-2 uppercase tracking-tight">Generate a ticket from Planner</p>
+                        </div>
                     </div>
                 </div>
-                <button onclick="clearHistory()" class="px-5 py-2.5 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-100 hover:bg-red-100 transition-all">Clear Archive</button>
-            </div>
 
-            <div class="max-w-4xl mx-auto">
-                <div id="history-container">
+                <div class="lg:col-span-7">
+                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-8 flex items-center gap-2">
+                         <i data-lucide="history" size="14"></i> Journey Vector History
+                    </h4>
                     <div id="trip-history" class="space-y-4">
                         <!-- History injected here -->
                     </div>
-                    <div id="history-empty" class="py-32 text-center flex flex-col items-center justify-center text-slate-300 bg-slate-50/50 rounded-[40px] border-2 border-dashed border-slate-200 shadow-inner">
-                        <i data-lucide="folder-clock" size="48" class="mb-6 opacity-20 text-slate-400"></i>
-                        <h4 class="text-xl font-black text-slate-400 mb-2">Vector Log Empty</h4>
-                        <p class="text-[10px] font-black uppercase tracking-widest opacity-60">Complete a journey in the Path Architect to log data</p>
-                        <button onclick="showTab('routes')" class="mt-10 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl">Launch Planner</button>
+                    <div id="history-empty" class="py-20 text-center flex flex-col items-center justify-center text-slate-300 bg-slate-50/50 rounded-[32px] border-2 border-dashed">
+                        <i data-lucide="folder-clock" size="32" class="mb-4 opacity-20"></i>
+                        <p class="text-[10px] font-black uppercase tracking-widest">No previous vectors found</p>
                     </div>
                 </div>
             </div>
@@ -1716,7 +1653,6 @@ HTML_TEMPLATE = """
         let weatherInterval = null;
         let trainStates = new Map(); // Store live train data for smooth interpolation
         let trainAnimationId = null;
-        let tabState = 'home';
 
         function animateTrains() {
             const g = document.getElementById('map-trains');
@@ -2050,57 +1986,6 @@ HTML_TEMPLATE = """
             }, 2500);
         }
 
-        function quickCompleteJourney() {
-            if (!currentPlannedRoute) return;
-            
-            const startId = document.getElementById('start-st').value;
-            const endId = document.getElementById('end-st').value;
-            
-            const clean = (str) => {
-                let s = str.split(' ').slice(1).join(' ');
-                return s.split(' 💻')[0].split(' 🔄')[0].trim();
-            };
-
-            const startNode = document.getElementById('start-st');
-            const endNode = document.getElementById('end-st');
-
-            const journey = {
-                id: 'H-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-                from: clean(startNode.options[startNode.selectedIndex].text),
-                to: clean(endNode.options[endNode.selectedIndex].text),
-                fare: currentPlannedRoute.fare,
-                line: stations.find(s => s.id === startId).line,
-                timestamp: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-                status: 'COMPLETED'
-            };
-
-            const history = JSON.parse(localStorage.getItem('metro_tickets') || '[]');
-            history.push(journey);
-            localStorage.setItem('metro_tickets', JSON.stringify(history));
-            
-            const btn = document.getElementById('complete-journey-btn');
-            btn.innerHTML = '<i data-lucide="check" size="14"></i> Logged to History';
-            btn.classList.replace('bg-slate-900', 'bg-emerald-500');
-            
-            setTimeout(() => {
-                btn.innerHTML = '<i data-lucide="check-circle" size="14"></i> Complete Journey';
-                btn.classList.replace('bg-emerald-500', 'bg-slate-900');
-                lucide.createIcons();
-                showTab('history');
-            }, 1000);
-
-            renderTickets();
-        }
-
-        function clearHistory() {
-            if (confirm("Are you sure you want to purge the neural archive? This cannot be undone.")) {
-                const history = JSON.parse(localStorage.getItem('metro_tickets') || '[]');
-                const remaining = history.filter(t => t.status === 'ACTIVE');
-                localStorage.setItem('metro_tickets', JSON.stringify(remaining));
-                renderTickets();
-            }
-        }
-
         function generateTicket(tripData) {
             const ticket = {
                 id: 'T-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
@@ -2125,125 +2010,138 @@ HTML_TEMPLATE = """
 
         function renderTickets() {
             const history = JSON.parse(localStorage.getItem('metro_tickets') || '[]');
-            const activeCont = document.getElementById('active-ticket-container');
-            const historyCont = document.getElementById('trip-history');
+            const activeContainer = document.getElementById('active-ticket-container');
+            const historyContainer = document.getElementById('trip-history');
             const historyEmpty = document.getElementById('history-empty');
-            
-            // Clean containers first
-            if (activeCont) activeCont.innerHTML = '';
-            if (historyCont) historyCont.innerHTML = '';
+
+            activeContainer.innerHTML = '';
+            historyContainer.innerHTML = '';
 
             const activeTicket = history.find(t => t.status === 'ACTIVE');
             const pastTrips = history.filter(t => t.status === 'COMPLETED').reverse();
 
-            // Render Active Ticket
             if (activeTicket) {
                 const lineCol = activeTicket.line === 'Red' ? '#ef4444' : activeTicket.line === 'Blue' ? '#3b82f6' : '#10b981';
-                activeCont.innerHTML = `
-                    <div class="glass-card bg-slate-900 border-none p-0 overflow-hidden shadow-[0_50px_100px_-20px_rgba(15,23,42,0.4)] relative group transition-all duration-700 hover:scale-[1.02] border-l-[10px]" style="border-left-color: ${lineCol}">
-                        <div class="relative p-10 overflow-hidden">
-                            <div class="absolute -right-10 -top-10 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] animate-pulse"></div>
-                            <div class="absolute -left-10 -bottom-10 w-64 h-64 ${activeTicket.line === 'Red' ? 'bg-red-500/10' : 'bg-emerald-500/10'} rounded-full blur-[100px] animate-pulse"></div>
+                const card = document.createElement('div');
+                card.className = "glass-card bg-slate-900 border-none p-0 overflow-hidden shadow-[0_50px_100px_-20px_rgba(15,23,42,0.4)] relative group transition-all duration-700 hover:scale-[1.02]";
+                card.innerHTML = `
+                    <div class="relative p-10 overflow-hidden">
+                        <!-- Holographic Background Effect -->
+                        <div class="absolute -right-10 -top-10 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] animate-pulse"></div>
+                        <div class="absolute -left-10 -bottom-10 w-64 h-64 ${activeTicket.line === 'Red' ? 'bg-red-500/10' : 'bg-emerald-500/10'} rounded-full blur-[100px] animate-pulse"></div>
 
-                            <div class="flex justify-between items-center mb-12 relative z-10">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-14 h-14 bg-white/5 backdrop-blur-xl border border-white/10 rounded-[20px] flex items-center justify-center text-white shadow-inner">
-                                        <i data-lucide="train-front" size="24" style="color: ${lineCol}"></i>
-                                    </div>
-                                    <div class="flex flex-col">
-                                        <h5 class="text-white font-black text-lg tracking-tight">Boarding Pass</h5>
-                                        <span class="text-[9px] font-black text-blue-500 uppercase tracking-[0.3em]">Neural Authorized</span>
-                                    </div>
+                        <div class="flex justify-between items-center mb-12 relative z-10">
+                            <div class="flex items-center gap-4">
+                                <div class="w-14 h-14 bg-white/5 backdrop-blur-xl border border-white/10 rounded-[20px] flex items-center justify-center text-white shadow-inner">
+                                    <i data-lucide="train-front" size="24" style="color: ${lineCol}"></i>
                                 </div>
-                                <div class="text-right">
-                                    <p class="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Pass Index</p>
-                                    <p class="text-xs font-black text-white bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 tabular-nums">${activeTicket.id}</p>
+                                <div class="flex flex-col">
+                                    <h5 class="text-white font-black text-lg tracking-tight">Boarding Pass</h5>
+                                    <span class="text-[9px] font-black text-blue-500 uppercase tracking-[0.3em]">Neural Authorized</span>
                                 </div>
                             </div>
-
-                            <div class="grid grid-cols-11 gap-4 items-center mb-12 relative z-10">
-                                <div class="col-span-11 flex flex-col items-center">
-                                     <div class="flex items-center justify-between w-full mb-4 px-4 bg-white/5 py-4 rounded-[28px] border border-white/5">
-                                        <div class="text-left flex-1">
-                                            <p class="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">Source</p>
-                                            <p class="text-[14px] font-black text-white truncate">${activeTicket.from}</p>
-                                        </div>
-                                        <div class="px-6 flex flex-col items-center">
-                                            <i data-lucide="arrow-right" class="text-blue-500" size="14"></i>
-                                        </div>
-                                        <div class="text-right flex-1">
-                                            <p class="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">Target</p>
-                                            <p class="text-[14px] font-black text-white truncate">${activeTicket.to}</p>
-                                        </div>
-                                     </div>
-                                </div>
+                            <div class="text-right">
+                                <p class="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Pass Index</p>
+                                <p class="text-xs font-black text-white bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 tabular-nums">${activeTicket.id}</p>
                             </div>
-
-                            <div class="flex flex-col items-center justify-center bg-white p-12 rounded-[52px] shadow-[inset_0_4px_30px_rgba(0,0,0,0.06)] mb-10 relative z-10 group-hover:scale-105 transition-transform duration-500">
-                                <div id="ticket-qr" class="p-1"></div>
-                                <p class="text-[8px] font-black uppercase tracking-[0.4em] text-slate-300 mt-6">Neural Identity Token</p>
-                            </div>
-
-                            <button onclick="completeTrip('${activeTicket.id}')" class="w-full py-6 bg-white text-slate-900 rounded-[28px] font-black text-[11px] uppercase tracking-[0.3em] transition-all hover:bg-blue-50 active:scale-95 shadow-xl shadow-white/5 mb-2 flex items-center justify-center gap-3">
-                                 <i data-lucide="scan-face" size="14"></i> Complete Journey
-                            </button>
                         </div>
+
+                        <div class="grid grid-cols-11 gap-4 items-center mb-12 relative z-10">
+                            <div class="col-span-5">
+                                <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Origin Hub</p>
+                                <p class="text-xl font-black text-white truncate max-w-full tracking-tight">${activeTicket.from}</p>
+                                <p class="text-[10px] font-bold text-blue-400 mt-1 uppercase tracking-widest">Hyd-Metro-A</p>
+                            </div>
+                            <div class="col-span-1 flex flex-col items-center gap-1">
+                                <div class="w-1 h-1 rounded-full bg-white/20"></div>
+                                <div class="flex-1 w-px bg-gradient-to-b from-white/10 via-blue-500/50 to-white/10 h-8 my-1"></div>
+                                <div class="w-1 h-1 rounded-full bg-white/20"></div>
+                            </div>
+                            <div class="col-span-5 text-right">
+                                <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Target Node</p>
+                                <p class="text-xl font-black text-white truncate max-w-full tracking-tight">${activeTicket.to}</p>
+                                <p class="text-[10px] font-bold text-emerald-400 mt-1 uppercase tracking-widest">Hyd-Metro-B</p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center justify-center bg-white p-12 rounded-[52px] shadow-[inset_0_4px_30px_rgba(0,0,0,0.06)] mb-10 relative z-10 group-hover:scale-105 transition-transform duration-500">
+                            <div id="ticket-qr" class="p-1"></div>
+                            <p class="text-[8px] font-black uppercase tracking-[0.4em] text-slate-300 mt-6">Neural Identity Token</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mb-10 relative z-10">
+                            <div class="p-5 bg-white/5 rounded-3xl border border-white/5 transition-colors hover:bg-white/10">
+                                <p class="text-[8px] font-black uppercase tracking-[0.2em] text-white/40 mb-1">Issue Time</p>
+                                <p class="text-[10px] font-bold text-white uppercase">${activeTicket.timestamp}</p>
+                            </div>
+                            <div class="p-5 bg-white/5 rounded-3xl border border-white/5 transition-colors hover:bg-white/10">
+                                <p class="text-[8px] font-black uppercase tracking-[0.2em] text-white/40 mb-1">Secure Fare</p>
+                                <p class="text-[10px] font-bold text-white uppercase tabular-nums">INR ${activeTicket.fare}.00</p>
+                            </div>
+                        </div>
+
+                        <button onclick="completeTrip('${activeTicket.id}')" class="w-full py-6 bg-white text-slate-900 rounded-[28px] font-black text-[11px] uppercase tracking-[0.3em] transition-all hover:bg-blue-50 active:scale-95 shadow-xl shadow-white/5 mb-2 flex items-center justify-center gap-3">
+                             <i data-lucide="scan" size="14"></i> Complete Journey
+                        </button>
+                    </div>
+                    <!-- Animated Scanning Progress -->
+                    <div class="h-1.5 bg-white/5 flex relative overflow-hidden">
+                         <div class="h-full bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.8)] animate-[shimmer_2s_infinite]" style="width: 100%"></div>
                     </div>
                 `;
+                activeContainer.appendChild(card);
+                
+                // Generate QR
                 new QRCode(document.getElementById("ticket-qr"), {
                     text: JSON.stringify({ id: activeTicket.id, u: "AIS-HYD", auth: "NEURAL-PRO" }),
-                    width: 210, height: 210, colorDark: "#0f172a", colorLight: "#ffffff",
+                    width: 210,
+                    height: 210,
+                    colorDark: "#0f172a",
+                    colorLight: "#ffffff",
                     correctLevel: QRCode.CorrectLevel.H
                 });
             } else {
-                activeCont.innerHTML = `
-                    <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-40 text-slate-300 rounded-[40px] bg-slate-50/10">
-                         <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-sm mb-8 border border-slate-100">
+                activeContainer.innerHTML = `
+                    <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-40 text-slate-300 rounded-[40px] bg-slate-50/30">
+                         <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-sm mb-6 border border-slate-100">
                             <i data-lucide="qr-code" size="32" class="opacity-10 text-slate-400"></i>
                          </div>
-                         <h4 class="text-xl font-black text-slate-400 mb-2">Vault Vector Null</h4>
-                         <p class="text-[10px] font-black uppercase tracking-widest opacity-40 mb-10">Purchase a token to access network</p>
-                         <button onclick="showTab('routes')" class="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl">Purchase Digital Token</button>
+                         <p class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Vault Vector Null</p>
+                         <button onclick="showTab('routes')" class="mt-8 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl">Purchase Digital Token</button>
                     </div>
                 `;
             }
 
-            // Render History
-            if (historyCont) {
-                if (pastTrips.length === 0) {
-                    if (historyEmpty) historyEmpty.classList.remove('hidden');
-                } else {
-                    if (historyEmpty) historyEmpty.classList.add('hidden');
-                    pastTrips.forEach(trip => {
-                        const lineCol = trip.line === 'Red' ? 'bg-red-500' : trip.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
-                        const div = document.createElement('div');
-                        div.className = "bg-white p-8 rounded-[40px] border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between group hover:border-blue-200 transition-all shadow-sm hover:shadow-md gap-6 mb-4";
-                        div.innerHTML = `
-                            <div class="flex items-center gap-8">
-                                <div class="w-12 h-12 rounded-[20px] ${lineCol} flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
-                                    <i data-lucide="map-pin" size="20"></i>
-                                </div>
-                                <div>
-                                    <div class="flex items-center gap-4 mb-2">
-                                        <h5 class="text-[18px] font-black text-slate-900 tracking-tight">${trip.from}</h5>
-                                        <i data-lucide="arrow-right" class="text-slate-300" size="14"></i>
-                                        <h5 class="text-[18px] font-black text-slate-900 tracking-tight">${trip.to}</h5>
-                                    </div>
-                                    <div class="flex items-center gap-4 text-slate-400">
-                                        <p class="text-[9px] font-black uppercase tracking-widest">${trip.timestamp}</p>
-                                        <span class="w-1 h-1 rounded-full bg-slate-200"></span>
-                                        <p class="text-[9px] font-black uppercase tracking-widest text-blue-600">₹${trip.fare} Network Fee</p>
+            if (pastTrips.length > 0) {
+                if (historyEmpty) historyEmpty.classList.add('hidden');
+                pastTrips.forEach(trip => {
+                    const lineCol = trip.line === 'Red' ? 'bg-red-500' : trip.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
+                    const div = document.createElement('div');
+                    div.className = "bg-white p-8 rounded-[36px] border border-slate-100 flex items-center justify-between group hover:border-blue-200 transition-all shadow-sm hover:shadow-md";
+                    div.innerHTML = `
+                        <div class="flex items-center gap-6">
+                            <div class="w-3 h-14 rounded-full ${lineCol} shadow-sm group-hover:scale-y-110 transition-transform"></div>
+                            <div>
+                                <p class="text-[16px] font-black text-slate-900 tracking-tight">${trip.from} <span class="text-slate-300 font-normal mx-2 opacity-50"><i data-lucide="chevrons-right" class="inline" size="16"></i></span> ${trip.to}</p>
+                                <div class="flex items-center gap-3 mt-2 text-slate-400">
+                                    <p class="text-[9px] font-black uppercase tracking-widest">${trip.timestamp}</p>
+                                    <span class="w-1 h-1 rounded-full bg-slate-200"></span>
+                                    <div class="flex items-center gap-1">
+                                        <i data-lucide="qr-code" size="10" class="opacity-40"></i>
+                                        <p class="text-[9px] font-black uppercase tracking-widest opacity-60">${trip.id}</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="flex flex-col lg:items-end border-t lg:border-t-0 pt-4 lg:pt-0 border-slate-50">
-                                <span class="text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 inline-block mb-2">Vector Archived</span>
-                                <p class="text-[10px] font-black text-slate-300 tabular-nums">ID: ${trip.id}</p>
-                            </div>
-                        `;
-                        historyCont.appendChild(div);
-                    });
-                }
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xl font-black text-slate-900 tabular-nums">₹${trip.fare}</p>
+                            <span class="text-[8px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 inline-block mt-2">Archived Vector</span>
+                        </div>
+                    `;
+                    historyContainer.appendChild(div);
+                });
+            } else {
+                if (historyEmpty) historyEmpty.classList.remove('hidden');
             }
             lucide.createIcons();
         }
@@ -2285,17 +2183,13 @@ HTML_TEMPLATE = """
         }
 
         function showTab(id) {
-            tabState = id;
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.mobile-link').forEach(l => l.classList.remove('active'));
             
-            const tab = document.getElementById('tab-'+id);
-            const mob = document.getElementById('mob-'+id);
-            if (tab) tab.classList.add('active');
-            if (mob) mob.classList.add('active');
+            document.getElementById('tab-'+id).classList.add('active');
+            document.getElementById('mob-'+id).classList.add('active');
             
             if(id !== 'map') closeOverlay();
-            if(id === 'tickets' || id === 'history') renderTickets();
         }
 
         function closeOverlay() {
@@ -2926,36 +2820,6 @@ HTML_TEMPLATE = """
                 loadBar.className = 'h-full transition-all duration-1000 ' + 
                                   (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
                 
-                // Personalized Recommendations rendering
-                const persRecCont = document.getElementById('personalized-recommendations');
-                persRecCont.innerHTML = '';
-                if (data.personalized_advices && data.personalized_advices.length > 0) {
-                    persRecCont.classList.remove('hidden');
-                    data.personalized_advices.forEach(adv => {
-                        const card = document.createElement('div');
-                        card.className = "bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:shadow-md group";
-                        
-                        let accentColor = "bg-blue-50 text-blue-600";
-                        if (adv.type === 'congestion') accentColor = "bg-amber-50 text-amber-600";
-                        if (adv.type === 'weather') accentColor = "bg-sky-50 text-sky-600";
-                        if (adv.type === 'it-hub') accentColor = "bg-indigo-50 text-indigo-600";
-
-                        card.innerHTML = `
-                            <div class="w-12 h-12 ${accentColor} rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                                <i data-lucide="${adv.icon}" size="20"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-black text-slate-800 uppercase tracking-tight mb-1">${adv.title}</h4>
-                                <p class="text-[11px] font-bold text-slate-500 leading-relaxed">${adv.text}</p>
-                            </div>
-                        `;
-                        persRecCont.appendChild(card);
-                    });
-                    lucide.createIcons();
-                } else {
-                    persRecCont.classList.add('hidden');
-                }
-
                 lastCalculatedFare = data.fare;
                 
                 const seq = document.getElementById('route-seq'); seq.innerHTML = '';
