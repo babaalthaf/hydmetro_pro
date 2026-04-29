@@ -30,10 +30,13 @@ def get_app_now():
         except: pass
     return get_ist_now()
 
-def get_live_weather():
+def get_live_weather(lat=None, lng=None):
     """Fetches real-time weather from Open-Meteo with extra metrics."""
+    if lat is None or lng is None:
+        lat, lng = 17.3850, 78.4867 # Default Hyderabad
+        
     try:
-        url = "https://api.open-meteo.com/v1/forecast?latitude=17.3850&longitude=78.4867&current_weather=true&hourly=relative_humidity_2m,visibility"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=relative_humidity_2m,visibility"
         data = requests.get(url, timeout=2).json()
         
         # Comprehensive WMO Code Mapping
@@ -136,9 +139,9 @@ def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
 # ==========================================
 STATIONS_LIST = [
     # RED LINE
-    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'x': 100, 'y': 200, 'lat': 17.4968, 'lng': 78.3498, 'amenities': ['Parking', 'Restrooms', 'Food Court', 'ATM']},
-    {'id': 'R2', 'name': 'JNTU', 'line': 'Red', 'x': 160, 'y': 240, 'lat': 17.4912, 'lng': 78.3582},
-    {'id': 'R3', 'name': 'KPHB', 'line': 'Red', 'x': 220, 'y': 280, 'lat': 17.4842, 'lng': 78.3888},
+    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'x': 100, 'y': 200, 'lat': 17.4968, 'lng': 78.3498, 'amenities': ['Large Parking Hub', 'Food Court (Subway, KFC)', 'Medical Center', 'HDFC Bank ATM']},
+    {'id': 'R2', 'name': 'JNTU', 'line': 'Red', 'x': 160, 'y': 240, 'lat': 17.4912, 'lng': 78.3582, 'amenities': ['Student Discount Kiosk', 'Cycle Stand', 'Coffee Day', 'Restrooms']},
+    {'id': 'R3', 'name': 'KPHB', 'line': 'Red', 'x': 220, 'y': 280, 'lat': 17.4842, 'lng': 78.3888, 'amenities': ['Main Mall Access', 'Electronics Outlet', 'Prayer Room', 'Escalators']},
     {'id': 'R4', 'name': 'Kukatpally', 'line': 'Red', 'x': 280, 'y': 320, 'lat': 17.4854, 'lng': 78.3975},
     {'id': 'R5', 'name': 'Balanagar', 'line': 'Red', 'x': 340, 'y': 360, 'lat': 17.4764, 'lng': 78.4239},
     {'id': 'R6', 'name': 'Moosapet', 'line': 'Red', 'x': 400, 'y': 400, 'lat': 17.4721, 'lng': 78.4284},
@@ -146,8 +149,8 @@ STATIONS_LIST = [
     {'id': 'R8', 'name': 'Erragadda', 'line': 'Red', 'x': 520, 'y': 480, 'lat': 17.4572, 'lng': 78.4412},
     {'id': 'R9', 'name': 'ESI Hospital', 'line': 'Red', 'x': 580, 'y': 520, 'lat': 17.4517, 'lng': 78.4457},
     {'id': 'R10', 'name': 'S.R. Nagar', 'line': 'Red', 'x': 640, 'y': 560, 'lat': 17.4442, 'lng': 78.4484},
-    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'x': 700, 'y': 600, 'lat': 17.4334, 'lng': 78.4484, 'amenities': ['Interchange', 'Shopping', 'Food Court', 'Restrooms', 'ATM']},
-    {'id': 'R12', 'name': 'Panjagutta', 'line': 'Red', 'x': 760, 'y': 640, 'lat': 17.4258, 'lng': 78.4522},
+    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'x': 700, 'y': 600, 'lat': 17.4334, 'lng': 78.4484, 'amenities': ['L3 Interchange Terminal', 'Ameerpet Metro Mall', 'Fine Dining Court', 'Apollo Clinic', 'SBI Full Branch']},
+    {'id': 'R12', 'name': 'Panjagutta', 'line': 'Red', 'x': 760, 'y': 640, 'lat': 17.4258, 'lng': 78.4522, 'amenities': ['Next Galleria Mall', 'PVR Cinemas Link', 'Starbucks', 'Valet Parking']},
     {'id': 'R13', 'name': 'Irrum Manzil', 'line': 'Red', 'x': 820, 'y': 680, 'lat': 17.4184, 'lng': 78.4557},
     {'id': 'R14', 'name': 'Khairatabad', 'line': 'Red', 'x': 880, 'y': 720, 'lat': 17.4101, 'lng': 78.4611},
     {'id': 'R15', 'name': 'Lakdikapul', 'line': 'Red', 'x': 940, 'y': 760, 'lat': 17.4024, 'lng': 78.4657},
@@ -155,19 +158,19 @@ STATIONS_LIST = [
     {'id': 'R17', 'name': 'Nampally', 'line': 'Red', 'x': 1060, 'y': 840, 'lat': 17.3921, 'lng': 78.4757},
     {'id': 'R18', 'name': 'Gandhi Bhavan', 'line': 'Red', 'x': 1120, 'y': 880, 'lat': 17.3872, 'lng': 78.4784},
     {'id': 'R19', 'name': 'OMC', 'line': 'Red', 'x': 1180, 'y': 920, 'lat': 17.3824, 'lng': 78.4812},
-    {'id': 'R20', 'name': 'MGBS', 'line': 'Red', 'x': 1240, 'y': 960, 'lat': 17.3776, 'lng': 78.4815, 'amenities': ['Bus Station Link', 'Ticket Counters', 'Restrooms', 'ATM']},
+    {'id': 'R20', 'name': 'MGBS', 'line': 'Red', 'x': 1240, 'y': 960, 'lat': 17.3776, 'lng': 78.4815, 'amenities': ['Interstate Bus Hub', 'Multi-level Parking', 'Dormitory Services', 'ICICI ATM']},
     {'id': 'R21', 'name': 'Malakpet', 'line': 'Red', 'x': 1300, 'y': 1000, 'lat': 17.3752, 'lng': 78.4907},
     {'id': 'R22', 'name': 'New Market', 'line': 'Red', 'x': 1360, 'y': 1040, 'lat': 17.3712, 'lng': 78.5084},
     {'id': 'R23', 'name': 'Musarambagh', 'line': 'Red', 'x': 1420, 'y': 1080, 'lat': 17.3684, 'lng': 78.5212},
-    {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'x': 1480, 'y': 1120, 'lat': 17.3657, 'lng': 78.5357},
+    {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'x': 1480, 'y': 1120, 'lat': 17.3657, 'lng': 78.5357, 'amenities': ['Shopping Arcade', 'Bus Junction Link', 'Snack Counters', 'Escalators']},
     {'id': 'R25', 'name': 'Chaitanyapuri', 'line': 'Red', 'x': 1540, 'y': 1160, 'lat': 17.3612, 'lng': 78.5484},
     {'id': 'R26', 'name': 'Victoria Memorial', 'line': 'Red', 'x': 1600, 'y': 1200, 'lat': 17.3557, 'lng': 78.5512},
-    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'x': 1660, 'y': 1240, 'lat': 17.3458, 'lng': 78.5524},
+    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'x': 1660, 'y': 1240, 'lat': 17.3458, 'lng': 78.5524, 'amenities': ['South Hub Terminal', 'Auto Stand', 'Public Restrooms', 'Security Post']},
 
     # BLUE LINE
-    {'id': 'B1', 'name': 'Raidurg', 'line': 'Blue', 'x': 100, 'y': 800, 'lat': 17.4429, 'lng': 78.3750},
-    {'id': 'B2', 'name': 'Hitech City', 'line': 'Blue', 'x': 160, 'y': 760, 'lat': 17.4474, 'lng': 78.3762, 'amenities': ['Parking', 'Restrooms', 'WIFI', 'ATM']},
-    {'id': 'B3', 'name': 'Durgam Cheruvu', 'line': 'Blue', 'x': 220, 'y': 720, 'lat': 17.4398, 'lng': 78.3857},
+    {'id': 'B1', 'name': 'Raidurg', 'line': 'Blue', 'x': 100, 'y': 800, 'lat': 17.4429, 'lng': 78.3750, 'amenities': ['IT Hub Terminal', 'Shopping Link', 'Premium Restrooms', 'Escalators']},
+    {'id': 'B2', 'name': 'Hitech City', 'line': 'Blue', 'x': 160, 'y': 760, 'lat': 17.4474, 'lng': 78.3762, 'amenities': ['Tech-Park Shuttle', 'Starbucks', 'Gigabit WIFI', 'Digital Kiosks', 'Parking']},
+    {'id': 'B3', 'name': 'Durgam Cheruvu', 'line': 'Blue', 'x': 220, 'y': 720, 'lat': 17.4398, 'lng': 78.3857, 'amenities': ['Skywalk to Inorbit Mall', 'Scenic View deck', 'Elevators', 'ATM']},
     {'id': 'B4', 'name': 'Madhapur', 'line': 'Blue', 'x': 280, 'y': 680, 'lat': 17.4357, 'lng': 78.3984},
     {'id': 'B5', 'name': 'Jubilee Hills CP', 'line': 'Blue', 'x': 340, 'y': 640, 'lat': 17.4324, 'lng': 78.4112},
     {'id': 'B6', 'name': 'Road No 5', 'line': 'Blue', 'x': 400, 'y': 600, 'lat': 17.4284, 'lng': 78.4239},
@@ -176,9 +179,9 @@ STATIONS_LIST = [
     {'id': 'B9', 'name': 'Begumpet', 'line': 'Blue', 'x': 800, 'y': 560, 'lat': 17.4398, 'lng': 78.4612},
     {'id': 'B10', 'name': 'Prakash Nagar', 'line': 'Blue', 'x': 900, 'y': 520, 'lat': 17.4457, 'lng': 78.4724},
     {'id': 'B11', 'name': 'Rasoolpura', 'line': 'Blue', 'x': 1000, 'y': 480, 'lat': 17.4512, 'lng': 78.4851},
-    {'id': 'B12', 'name': 'Paradise', 'line': 'Blue', 'x': 1100, 'y': 440, 'lat': 17.4568, 'lng': 78.4972},
-    {'id': 'B13', 'name': 'Parade Ground', 'line': 'Blue', 'x': 1200, 'y': 400, 'lat': 17.4452, 'lng': 78.4985},
-    {'id': 'B14', 'name': 'Sec-bad East', 'line': 'Blue', 'x': 1300, 'y': 360, 'lat': 17.4546, 'lng': 78.5212},
+    {'id': 'B12', 'name': 'Paradise', 'line': 'Blue', 'x': 1100, 'y': 440, 'lat': 17.4568, 'lng': 78.4972, 'amenities': ['Paradise Biryani Link', 'Commercial Center', 'Restrooms', 'ATM']},
+    {'id': 'B13', 'name': 'Parade Ground', 'line': 'Blue', 'x': 1200, 'y': 400, 'lat': 17.4452, 'lng': 78.4985, 'amenities': ['Green Line Interchange', 'Army Area Access', 'Parking', 'Escalators']},
+    {'id': 'B14', 'name': 'Sec-bad East', 'line': 'Blue', 'x': 1300, 'y': 360, 'lat': 17.4546, 'lng': 78.5212, 'amenities': ['Railway Station Link', 'Porter Services', 'Waiting Lounge', 'Food Court']},
     {'id': 'B15', 'name': 'Mettuguda', 'line': 'Blue', 'x': 1400, 'y': 320, 'lat': 17.4484, 'lng': 78.5342},
     {'id': 'B16', 'name': 'Tarnaka', 'line': 'Blue', 'x': 1500, 'y': 280, 'lat': 17.4357, 'lng': 78.5472},
     {'id': 'B17', 'name': 'Habsiguda', 'line': 'Blue', 'x': 1600, 'y': 240, 'lat': 17.4212, 'lng': 78.5584},
@@ -188,9 +191,9 @@ STATIONS_LIST = [
     {'id': 'B21', 'name': 'Nagole', 'line': 'Blue', 'x': 2000, 'y': 80, 'lat': 17.3941, 'lng': 78.5668},
 
     # GREEN LINE
-    {'id': 'G1', 'name': 'JBS', 'line': 'Green', 'x': 900, 'y': 200, 'lat': 17.4502, 'lng': 78.5002},
-    {'id': 'G2', 'name': 'Sec-bad West', 'line': 'Green', 'x': 950, 'y': 300, 'lat': 17.4475, 'lng': 78.5015},
-    {'id': 'G3', 'name': 'Parade Ground', 'line': 'Green', 'x': 1200, 'y': 400, 'lat': 17.4452, 'lng': 78.4985, 'name_alias': 'Parade Ground'},
+    {'id': 'G1', 'name': 'JBS', 'line': 'Green', 'x': 900, 'y': 200, 'lat': 17.4502, 'lng': 78.5002, 'amenities': ['Bus Terminal Link', 'Cloak Room', 'Ticket Vending', 'Restrooms']},
+    {'id': 'G2', 'name': 'Sec-bad West', 'line': 'Green', 'x': 950, 'y': 300, 'lat': 17.4475, 'lng': 78.5015, 'amenities': ['Railway Concourse Link', 'Cycle Stand', 'CCTV Support', 'ATM']},
+    {'id': 'G3', 'name': 'Parade Ground', 'line': 'Green', 'x': 1200, 'y': 400, 'lat': 17.4452, 'lng': 78.4985, 'name_alias': 'Parade Ground', 'amenities': ['Blue Line Interchange', 'Pedestrian Plaza', 'Digital Information Board', 'Wheelchair Access']},
     {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'x': 1200, 'y': 500, 'lat': 17.4335, 'lng': 78.5020},
     {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'x': 1200, 'y': 600, 'lat': 17.4215, 'lng': 78.5030},
     {'id': 'G6', 'name': 'RTC X Roads', 'line': 'Green', 'x': 1200, 'y': 700, 'lat': 17.4080, 'lng': 78.5040},
@@ -354,7 +357,7 @@ def api_nearest():
             except: continue
     
     # AI & Weather Data
-    weather = get_live_weather()
+    weather = get_live_weather(lat=lat, lng=lng)
     is_weekend = now.weekday() >= 5
     load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
     
@@ -396,6 +399,13 @@ def api_nearest():
         'weather': weather,
         'greeting': "Good Morning" if 5 <= now.hour < 12 else "Good Afternoon" if 12 <= now.hour < 17 else "Good Evening"
     })
+
+@app.route('/api/weather', methods=['POST'])
+def api_weather():
+    data = request.json
+    lat, lng = data.get('lat'), data.get('lng')
+    weather = get_live_weather(lat=lat, lng=lng)
+    return jsonify(weather)
 
 @app.route('/api/plan', methods=['POST'])
 def api_plan():
@@ -522,7 +532,7 @@ def api_plan():
     
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
-    weather = get_live_weather()
+    weather = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
     is_weekend = now.weekday() >= 5
     load_val, _ = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
     
@@ -643,6 +653,47 @@ def api_plan():
                      "Moderate volume. Manageable rush." if load_val == "M-High" else \
                      "Peak congestion. AI suggests waiting for dip.") + weather_advice
 
+    # Personalized Recommendations List
+    personalized_advices = []
+    
+    if load_pct > 75:
+        personalized_advices.append({
+            'type': 'congestion',
+            'title': 'High Density Alert',
+            'text': 'Severe congestion predicted. Suggest taking a 15-min earlier train for a guaranteed seat.',
+            'icon': 'users'
+        })
+    elif load_pct > 50:
+        personalized_advices.append({
+            'type': 'congestion',
+            'title': 'Moderate Flux',
+            'text': 'Steady boarding volume. Board mid-train coaches for less crowding.',
+            'icon': 'info'
+        })
+
+    if weather.get('temp', 30) > 36:
+        personalized_advices.append({
+            'type': 'weather',
+            'title': 'Heat Protocol',
+            'text': 'High external temperatures. Station cooling optimized; stay hydrated at platform kiosks.',
+            'icon': 'thermometer'
+        })
+    elif "Rain" in weather.get('condition', ''):
+        personalized_advices.append({
+            'type': 'weather',
+            'title': 'Rain Advisory',
+            'text': 'Slippery floors possible at terminal exits. Multi-modal links might be delayed.',
+            'icon': 'cloud-rain'
+        })
+    
+    if is_peak == "Peak Hour" and any(n in [s['name'] for s in sequence] for n in ['Hitech City', 'Madhapur', 'Raidurg']):
+         personalized_advices.append({
+            'type': 'it-hub',
+            'title': 'Tech Hub Rush',
+            'text': 'Heavy IT corridor movement detected. Use the dedicated express entry for faster access.',
+            'icon': 'zap'
+        })
+
     # User Request: Upcoming trains for next 1 hour from source
     one_hour_later = now + timedelta(hours=1)
     now_str = now.strftime('%H:%M:%S')
@@ -708,6 +759,7 @@ def api_plan():
         'total_km': round(total_km, 2),
         'fare': calculated_fare,
         'recommendation': recommendation,
+        'personalized_advices': personalized_advices,
         'load': round(load_pct, 1),
         'peak_intensity': peak_intensity,
         'guides': guides,
@@ -761,6 +813,14 @@ def api_live_map():
                     elapsed = (now_dt - t1).total_seconds()
                     
                     progress = max(0, min(1, elapsed / total_duration))
+
+                    # Calculate speed
+                    st1 = next((s for s in STATIONS_LIST if s['id'] == s1['station_id']), None)
+                    st2 = next((s for s in STATIONS_LIST if s['id'] == s2['station_id']), None)
+                    speed = 0
+                    if st1 and st2 and total_duration > 0:
+                        dist = haversine(st1['lat'], st1['lng'], st2['lat'], st2['lng'])
+                        speed = (dist / (total_duration / 3600.0))
                     
                     active_trains.append({
                         'trip_id': tid,
@@ -768,8 +828,11 @@ def api_live_map():
                         'from_id': s1['station_id'],
                         'to_id': s2['station_id'],
                         'progress': progress,
+                        't1_epoch': t1.timestamp(),
+                        'duration': total_duration,
                         'direction': s1['direction'],
-                        'final_stop': s1['final_stop']
+                        'final_stop': s1['final_stop'],
+                        'speed': round(speed, 1) if speed < 110 else 75
                     })
                     break # Only one segment per trip
                 except:
@@ -1061,6 +1124,7 @@ HTML_TEMPLATE = """
     <div class="mobile-nav">
         <div onclick="showTab('home')" class="mobile-link active" id="mob-home"><i data-lucide="home"></i><span>Home</span></div>
         <div onclick="showTab('map')" class="mobile-link" id="mob-map"><i data-lucide="map-pinned"></i><span>Map</span></div>
+        <div onclick="showTab('history')" class="mobile-link" id="mob-history"><i data-lucide="history"></i><span>History</span></div>
         <div onclick="showTab('tickets')" class="mobile-link" id="mob-tickets"><i data-lucide="qr-code"></i><span>Tickets</span></div>
         <div onclick="showTab('routes')" class="mobile-link" id="mob-routes"><i data-lucide="route"></i><span>Planner</span></div>
         <div onclick="showTab('feedback')" class="mobile-link" id="mob-feedback"><i data-lucide="heart"></i><span>Feed</span></div>
@@ -1210,9 +1274,63 @@ HTML_TEMPLATE = """
         </div>
 
         <!-- NETWORK MAP -->
-        <div id="tab-map" class="tab-content">
-            <div class="text-center lg:text-left mb-4">
-                <h2 class="text-3xl font-black text-slate-900 tracking-tight">Dynamic Network Topology</h2>
+        <div id="tab-map" class="tab-content h-full">
+            <div id="interchange-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+                <div class="glass-card bg-white w-full max-w-lg p-0 overflow-hidden shadow-2xl border-none">
+                    <div id="modal-header" class="p-8 pb-4 flex justify-between items-start">
+                        <div>
+                            <h2 id="modal-title" class="text-2xl font-black text-slate-900 tracking-tight">Interchange Hub</h2>
+                            <p id="modal-subtitle" class="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mt-1">Multi-Level Terminal Guidance</p>
+                        </div>
+                        <button onclick="closeInterchangeModal()" class="p-2 hover:bg-slate-100 rounded-xl transition-all">
+                            <i data-lucide="x" size="20"></i>
+                        </button>
+                    </div>
+                    <div id="modal-content" class="p-8 pt-0 space-y-6">
+                        <div id="line-badges" class="flex gap-2 mb-6"></div>
+                        <div class="space-y-4">
+                            <h4 class="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <i data-lucide="shuffle" size="14"></i> Transfer Protocol
+                            </h4>
+                            <div id="transfer-guidance" class="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-4">
+                                <!-- Guidance steps will be injected here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-6 bg-slate-900 text-white flex justify-between items-center mt-4">
+                        <div class="flex items-center gap-3">
+                            <i data-lucide="info" class="text-blue-400" size="16"></i>
+                            <span class="text-[9px] font-black uppercase tracking-widest italic">Live station map available via terminal kiosk</span>
+                        </div>
+                        <button onclick="closeInterchangeModal()" class="px-5 py-2.5 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Acknowledge</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
+                <div>
+                    <h2 class="text-3xl font-black text-slate-900 tracking-tight">Dynamic Network Topology</h2>
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time vector synchronization active</p>
+                </div>
+                <div class="relative group w-full lg:w-96" id="map-search-container">
+                    <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-600 transition-colors">
+                        <i data-lucide="search" size="18"></i>
+                    </div>
+                    <input type="text" id="map-search" placeholder="Search Neural Node (e.g. Miyapur)..." 
+                        class="w-full pl-12 pr-12 py-4 bg-white border-2 border-slate-100 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 transition-all shadow-sm"
+                        oninput="filterMapStations(this.value)"
+                        onfocus="showMapSuggestions(this.value)">
+                    <div class="absolute right-4 top-1/2 -translate-y-1/2 flex gap-2">
+                        <button id="search-clear" onclick="clearMapSearch()" class="hidden p-1 hover:bg-slate-100 rounded-lg text-slate-400 transition-all">
+                            <i data-lucide="circle-x" size="16"></i>
+                        </button>
+                        <span class="hidden lg:block px-2 py-1 bg-slate-50 border border-slate-100 rounded-md text-[8px] font-black text-slate-400 uppercase">⌘ K</span>
+                    </div>
+                    <!-- Search Suggestions -->
+                    <div id="map-suggestions" class="hidden absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-100 shadow-2xl z-[110] max-h-80 overflow-y-auto p-2 scrollbar-none">
+                        <!-- Suggestions appended here -->
+                    </div>
+                </div>
             </div>
             <div class="glass-card p-0 relative h-[800px] overflow-hidden bg-slate-900 border-none shadow-inner">
                 <svg id="network-svg" viewBox="0 0 2500 1500" class="w-full h-full cursor-grab active:cursor-grabbing">
@@ -1230,7 +1348,13 @@ HTML_TEMPLATE = """
                         </div>
 
                         <div class="mb-10 px-2 lg:px-0">
-                            <span id="ov-line" class="px-3 py-1 text-[10px] font-black uppercase rounded-lg mb-4 inline-block">LINE</span>
+                            <div class="flex items-center gap-2 mb-4">
+                                <span id="ov-line" class="px-3 py-1 text-[10px] font-black uppercase rounded-lg">LINE</span>
+                                <div id="ov-weather" class="hidden flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-lg border border-emerald-100">
+                                    <i data-lucide="cloud-sun" size="10"></i>
+                                    <span id="ov-weather-val">--°C</span>
+                                </div>
+                            </div>
                             <h4 id="ov-name" class="text-3xl lg:text-4xl font-black text-slate-900 leading-tight tracking-tighter">Station Name</h4>
                         </div>
 
@@ -1311,8 +1435,11 @@ HTML_TEMPLATE = """
                 <div id="route-output" class="hidden space-y-6 pb-12">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-3">
-                            <button onclick="saveCurrentVector()" id="save-vector-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">
+                            <button onclick="saveCurrentVector()" id="save-vector-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-slate-200 transition-all">
                                 <i data-lucide="star" size="14"></i> Save Vector
+                            </button>
+                            <button onclick="quickCompleteJourney()" id="complete-journey-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">
+                                <i data-lucide="check-circle" size="14"></i> Complete Journey
                             </button>
                             <button onclick="shareRoute()" class="p-3 bg-slate-100 rounded-2xl text-slate-400 hover:text-slate-600 transition-all"><i data-lucide="share-2" size="18"></i></button>
                         </div>
@@ -1366,6 +1493,10 @@ HTML_TEMPLATE = """
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    <div id="personalized-recommendations" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <!-- Personalized items injected here -->
                     </div>
 
                     <div class="glass-card p-0 overflow-hidden border-none shadow-2xl bg-white rounded-[40px]">
@@ -1450,7 +1581,7 @@ HTML_TEMPLATE = """
         <div id="tab-tickets" class="tab-content">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-6 border-b pb-4 border-slate-200">
                 <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
-                   <div class="w-16 h-16 bg-slate-900 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-slate-900/20"><i data-lucide="pocket" size="32"></i></div>
+                   <div class="w-16 h-16 bg-slate-900 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-slate-900/20"><i data-lucide="qr-code" size="32"></i></div>
                    <div>
                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Digital Vault</h2>
                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center lg:justify-start gap-2">
@@ -1461,34 +1592,47 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                <div class="lg:col-span-5">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
-                            <i data-lucide="zap" class="text-blue-600" size="14"></i> Active Boarding Pass
-                        </h4>
-                    </div>
-                    
-                    <div id="active-ticket-container" class="perspective-1000">
-                        <!-- Active ticket injected here -->
-                        <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-32 text-slate-300">
-                             <div class="p-6 bg-slate-50 rounded-full mb-6"><i data-lucide="qr-code" size="48" class="opacity-10"></i></div>
-                             <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Vault Empty</p>
-                             <p class="text-[9px] font-bold text-slate-300 mt-2 uppercase tracking-tight">Generate a ticket from Planner</p>
-                        </div>
-                    </div>
+            <div class="max-w-2xl mx-auto">
+                <div class="flex items-center justify-between mb-8">
+                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
+                        <i data-lucide="zap" class="text-blue-600" size="14"></i> Active Boarding Pass
+                    </h4>
+                </div>
+                
+                <div id="active-ticket-container" class="perspective-1000 mb-12">
+                    <!-- Active ticket injected here -->
                 </div>
 
-                <div class="lg:col-span-7">
-                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-8 flex items-center gap-2">
-                         <i data-lucide="history" size="14"></i> Journey Vector History
-                    </h4>
+                <div class="glass-card bg-slate-50 border-none p-10 text-center">
+                    <i data-lucide="archive" class="mx-auto mb-4 text-slate-300" size="32"></i>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Past journeys are archived in History</p>
+                    <button onclick="showTab('history')" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all">View All History</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-history" class="tab-content">
+             <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6 border-b pb-6 border-slate-200">
+                <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
+                    <div class="w-16 h-16 bg-slate-800 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-slate-800/20"><i data-lucide="history" size="32"></i></div>
+                    <div>
+                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Journey History</h2>
+                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Chronological archive of all transit vectors</p>
+                    </div>
+                </div>
+                <button onclick="clearHistory()" class="px-5 py-2.5 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-100 hover:bg-red-100 transition-all">Clear Archive</button>
+            </div>
+
+            <div class="max-w-4xl mx-auto">
+                <div id="history-container">
                     <div id="trip-history" class="space-y-4">
                         <!-- History injected here -->
                     </div>
-                    <div id="history-empty" class="py-20 text-center flex flex-col items-center justify-center text-slate-300 bg-slate-50/50 rounded-[32px] border-2 border-dashed">
-                        <i data-lucide="folder-clock" size="32" class="mb-4 opacity-20"></i>
-                        <p class="text-[10px] font-black uppercase tracking-widest">No previous vectors found</p>
+                    <div id="history-empty" class="py-32 text-center flex flex-col items-center justify-center text-slate-300 bg-slate-50/50 rounded-[40px] border-2 border-dashed border-slate-200 shadow-inner">
+                        <i data-lucide="folder-clock" size="48" class="mb-6 opacity-20 text-slate-400"></i>
+                        <h4 class="text-xl font-black text-slate-400 mb-2">Vector Log Empty</h4>
+                        <p class="text-[10px] font-black uppercase tracking-widest opacity-60">Complete a journey in the Path Architect to log data</p>
+                        <button onclick="showTab('routes')" class="mt-10 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl">Launch Planner</button>
                     </div>
                 </div>
             </div>
@@ -1569,6 +1713,47 @@ HTML_TEMPLATE = """
         let currentPlannedRoute = null;
         let lastUserLoc = null;
         let lastStationLoc = null;
+        let weatherInterval = null;
+        let trainStates = new Map(); // Store live train data for smooth interpolation
+        let trainAnimationId = null;
+        let tabState = 'home';
+
+        function animateTrains() {
+            const g = document.getElementById('map-trains');
+            if (!g || tabState !== 'map') {
+                trainAnimationId = requestAnimationFrame(animateTrains);
+                return;
+            }
+
+            const now = Date.now();
+            trainStates.forEach((t, tid) => {
+                const s1 = stations.find(s => s.id === t.from_id);
+                const s2 = stations.find(s => s.id === t.to_id);
+                if(!s1 || !s2) return;
+
+                // Neural Interpolation
+                let progress = (now / 1000 - t.t1_epoch) / t.duration;
+                progress = Math.max(0, Math.min(1.05, progress)); // Allow slight overshoot for smoothness before update
+
+                const curX = s1.x + (s2.x - s1.x) * progress;
+                const curY = s1.y + (s2.y - s1.y) * progress;
+                const angle = Math.atan2(s2.y - s1.y, s2.x - s1.x) * 180 / Math.PI;
+
+                let train = g.querySelector(`[data-trip-id="${tid}"]`);
+                if (train) {
+                    train.setAttribute('transform', `translate(${curX}, ${curY}) rotate(${angle})`);
+                    
+                    // Dynamic tail length based on speed and progress
+                    const speedNormalized = Math.min(t.speed / 80, 1.5);
+                    const tail = train.querySelector('.train-tail');
+                    if (tail) {
+                        tail.setAttribute('d', `M 0,0 L -${10 + (speedNormalized * 40)},0`);
+                    }
+                }
+            });
+
+            trainAnimationId = requestAnimationFrame(animateTrains);
+        }
 
         function openGoogleMaps() {
             if (!lastStationLoc) return;
@@ -1576,6 +1761,25 @@ HTML_TEMPLATE = """
             const origin = lastUserLoc ? `${lastUserLoc.lat},${lastUserLoc.lng}` : "";
             const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=walking`;
             window.open(url, '_blank');
+        }
+
+        async function refreshWeather() {
+            if (!lastUserLoc) return;
+            try {
+                const res = await fetch('/api/weather', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ lat: lastUserLoc.lat, lng: lastUserLoc.lng })
+                });
+                const data = await res.json();
+                document.getElementById('weather-val').innerText = data.temp + '°C, ' + data.condition;
+                document.getElementById('weather-detail').innerText = `Humidity: ${data.humidity}% | Visibility: ${data.visibility.toFixed(1)}km`;
+                
+                const weatherRec = data.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
+                                   data.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
+                                   "Neural processing active. Enjoy your commute across the network.";
+                document.getElementById('env-msg').innerText = weatherRec;
+            } catch (e) { console.warn("Weather Refresh Fail", e); }
         }
 
         // Persistence Logic for Saved Vectors
@@ -1846,6 +2050,57 @@ HTML_TEMPLATE = """
             }, 2500);
         }
 
+        function quickCompleteJourney() {
+            if (!currentPlannedRoute) return;
+            
+            const startId = document.getElementById('start-st').value;
+            const endId = document.getElementById('end-st').value;
+            
+            const clean = (str) => {
+                let s = str.split(' ').slice(1).join(' ');
+                return s.split(' 💻')[0].split(' 🔄')[0].trim();
+            };
+
+            const startNode = document.getElementById('start-st');
+            const endNode = document.getElementById('end-st');
+
+            const journey = {
+                id: 'H-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+                from: clean(startNode.options[startNode.selectedIndex].text),
+                to: clean(endNode.options[endNode.selectedIndex].text),
+                fare: currentPlannedRoute.fare,
+                line: stations.find(s => s.id === startId).line,
+                timestamp: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                status: 'COMPLETED'
+            };
+
+            const history = JSON.parse(localStorage.getItem('metro_tickets') || '[]');
+            history.push(journey);
+            localStorage.setItem('metro_tickets', JSON.stringify(history));
+            
+            const btn = document.getElementById('complete-journey-btn');
+            btn.innerHTML = '<i data-lucide="check" size="14"></i> Logged to History';
+            btn.classList.replace('bg-slate-900', 'bg-emerald-500');
+            
+            setTimeout(() => {
+                btn.innerHTML = '<i data-lucide="check-circle" size="14"></i> Complete Journey';
+                btn.classList.replace('bg-emerald-500', 'bg-slate-900');
+                lucide.createIcons();
+                showTab('history');
+            }, 1000);
+
+            renderTickets();
+        }
+
+        function clearHistory() {
+            if (confirm("Are you sure you want to purge the neural archive? This cannot be undone.")) {
+                const history = JSON.parse(localStorage.getItem('metro_tickets') || '[]');
+                const remaining = history.filter(t => t.status === 'ACTIVE');
+                localStorage.setItem('metro_tickets', JSON.stringify(remaining));
+                renderTickets();
+            }
+        }
+
         function generateTicket(tripData) {
             const ticket = {
                 id: 'T-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
@@ -1870,138 +2125,125 @@ HTML_TEMPLATE = """
 
         function renderTickets() {
             const history = JSON.parse(localStorage.getItem('metro_tickets') || '[]');
-            const activeContainer = document.getElementById('active-ticket-container');
-            const historyContainer = document.getElementById('trip-history');
+            const activeCont = document.getElementById('active-ticket-container');
+            const historyCont = document.getElementById('trip-history');
             const historyEmpty = document.getElementById('history-empty');
-
-            activeContainer.innerHTML = '';
-            historyContainer.innerHTML = '';
+            
+            // Clean containers first
+            if (activeCont) activeCont.innerHTML = '';
+            if (historyCont) historyCont.innerHTML = '';
 
             const activeTicket = history.find(t => t.status === 'ACTIVE');
             const pastTrips = history.filter(t => t.status === 'COMPLETED').reverse();
 
+            // Render Active Ticket
             if (activeTicket) {
                 const lineCol = activeTicket.line === 'Red' ? '#ef4444' : activeTicket.line === 'Blue' ? '#3b82f6' : '#10b981';
-                const card = document.createElement('div');
-                card.className = "glass-card bg-slate-900 border-none p-0 overflow-hidden shadow-[0_50px_100px_-20px_rgba(15,23,42,0.4)] relative group transition-all duration-700 hover:scale-[1.02]";
-                card.innerHTML = `
-                    <div class="relative p-10 overflow-hidden">
-                        <!-- Holographic Background Effect -->
-                        <div class="absolute -right-10 -top-10 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] animate-pulse"></div>
-                        <div class="absolute -left-10 -bottom-10 w-64 h-64 ${activeTicket.line === 'Red' ? 'bg-red-500/10' : 'bg-emerald-500/10'} rounded-full blur-[100px] animate-pulse"></div>
+                activeCont.innerHTML = `
+                    <div class="glass-card bg-slate-900 border-none p-0 overflow-hidden shadow-[0_50px_100px_-20px_rgba(15,23,42,0.4)] relative group transition-all duration-700 hover:scale-[1.02] border-l-[10px]" style="border-left-color: ${lineCol}">
+                        <div class="relative p-10 overflow-hidden">
+                            <div class="absolute -right-10 -top-10 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] animate-pulse"></div>
+                            <div class="absolute -left-10 -bottom-10 w-64 h-64 ${activeTicket.line === 'Red' ? 'bg-red-500/10' : 'bg-emerald-500/10'} rounded-full blur-[100px] animate-pulse"></div>
 
-                        <div class="flex justify-between items-center mb-12 relative z-10">
-                            <div class="flex items-center gap-4">
-                                <div class="w-14 h-14 bg-white/5 backdrop-blur-xl border border-white/10 rounded-[20px] flex items-center justify-center text-white shadow-inner">
-                                    <i data-lucide="train-front" size="24" style="color: ${lineCol}"></i>
+                            <div class="flex justify-between items-center mb-12 relative z-10">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-14 h-14 bg-white/5 backdrop-blur-xl border border-white/10 rounded-[20px] flex items-center justify-center text-white shadow-inner">
+                                        <i data-lucide="train-front" size="24" style="color: ${lineCol}"></i>
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <h5 class="text-white font-black text-lg tracking-tight">Boarding Pass</h5>
+                                        <span class="text-[9px] font-black text-blue-500 uppercase tracking-[0.3em]">Neural Authorized</span>
+                                    </div>
                                 </div>
-                                <div class="flex flex-col">
-                                    <h5 class="text-white font-black text-lg tracking-tight">Boarding Pass</h5>
-                                    <span class="text-[9px] font-black text-blue-500 uppercase tracking-[0.3em]">Neural Authorized</span>
+                                <div class="text-right">
+                                    <p class="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Pass Index</p>
+                                    <p class="text-xs font-black text-white bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 tabular-nums">${activeTicket.id}</p>
                                 </div>
                             </div>
-                            <div class="text-right">
-                                <p class="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Pass Index</p>
-                                <p class="text-xs font-black text-white bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 tabular-nums">${activeTicket.id}</p>
-                            </div>
-                        </div>
 
-                        <div class="grid grid-cols-11 gap-4 items-center mb-12 relative z-10">
-                            <div class="col-span-5">
-                                <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Origin Hub</p>
-                                <p class="text-xl font-black text-white truncate max-w-full tracking-tight">${activeTicket.from}</p>
-                                <p class="text-[10px] font-bold text-blue-400 mt-1 uppercase tracking-widest">Hyd-Metro-A</p>
+                            <div class="grid grid-cols-11 gap-4 items-center mb-12 relative z-10">
+                                <div class="col-span-11 flex flex-col items-center">
+                                     <div class="flex items-center justify-between w-full mb-4 px-4 bg-white/5 py-4 rounded-[28px] border border-white/5">
+                                        <div class="text-left flex-1">
+                                            <p class="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">Source</p>
+                                            <p class="text-[14px] font-black text-white truncate">${activeTicket.from}</p>
+                                        </div>
+                                        <div class="px-6 flex flex-col items-center">
+                                            <i data-lucide="arrow-right" class="text-blue-500" size="14"></i>
+                                        </div>
+                                        <div class="text-right flex-1">
+                                            <p class="text-[8px] font-black uppercase text-white/30 tracking-widest mb-1">Target</p>
+                                            <p class="text-[14px] font-black text-white truncate">${activeTicket.to}</p>
+                                        </div>
+                                     </div>
+                                </div>
                             </div>
-                            <div class="col-span-1 flex flex-col items-center gap-1">
-                                <div class="w-1 h-1 rounded-full bg-white/20"></div>
-                                <div class="flex-1 w-px bg-gradient-to-b from-white/10 via-blue-500/50 to-white/10 h-8 my-1"></div>
-                                <div class="w-1 h-1 rounded-full bg-white/20"></div>
-                            </div>
-                            <div class="col-span-5 text-right">
-                                <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white/40 mb-3">Target Node</p>
-                                <p class="text-xl font-black text-white truncate max-w-full tracking-tight">${activeTicket.to}</p>
-                                <p class="text-[10px] font-bold text-emerald-400 mt-1 uppercase tracking-widest">Hyd-Metro-B</p>
-                            </div>
-                        </div>
 
-                        <div class="flex flex-col items-center justify-center bg-white p-12 rounded-[52px] shadow-[inset_0_4px_30px_rgba(0,0,0,0.06)] mb-10 relative z-10 group-hover:scale-105 transition-transform duration-500">
-                            <div id="ticket-qr" class="p-1"></div>
-                            <p class="text-[8px] font-black uppercase tracking-[0.4em] text-slate-300 mt-6">Neural Identity Token</p>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-4 mb-10 relative z-10">
-                            <div class="p-5 bg-white/5 rounded-3xl border border-white/5 transition-colors hover:bg-white/10">
-                                <p class="text-[8px] font-black uppercase tracking-[0.2em] text-white/40 mb-1">Issue Time</p>
-                                <p class="text-[10px] font-bold text-white uppercase">${activeTicket.timestamp}</p>
+                            <div class="flex flex-col items-center justify-center bg-white p-12 rounded-[52px] shadow-[inset_0_4px_30px_rgba(0,0,0,0.06)] mb-10 relative z-10 group-hover:scale-105 transition-transform duration-500">
+                                <div id="ticket-qr" class="p-1"></div>
+                                <p class="text-[8px] font-black uppercase tracking-[0.4em] text-slate-300 mt-6">Neural Identity Token</p>
                             </div>
-                            <div class="p-5 bg-white/5 rounded-3xl border border-white/5 transition-colors hover:bg-white/10">
-                                <p class="text-[8px] font-black uppercase tracking-[0.2em] text-white/40 mb-1">Secure Fare</p>
-                                <p class="text-[10px] font-bold text-white uppercase tabular-nums">INR ${activeTicket.fare}.00</p>
-                            </div>
-                        </div>
 
-                        <button onclick="completeTrip('${activeTicket.id}')" class="w-full py-6 bg-white text-slate-900 rounded-[28px] font-black text-[11px] uppercase tracking-[0.3em] transition-all hover:bg-blue-50 active:scale-95 shadow-xl shadow-white/5 mb-2 flex items-center justify-center gap-3">
-                             <i data-lucide="scan" size="14"></i> Complete Journey
-                        </button>
-                    </div>
-                    <!-- Animated Scanning Progress -->
-                    <div class="h-1.5 bg-white/5 flex relative overflow-hidden">
-                         <div class="h-full bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.8)] animate-[shimmer_2s_infinite]" style="width: 100%"></div>
+                            <button onclick="completeTrip('${activeTicket.id}')" class="w-full py-6 bg-white text-slate-900 rounded-[28px] font-black text-[11px] uppercase tracking-[0.3em] transition-all hover:bg-blue-50 active:scale-95 shadow-xl shadow-white/5 mb-2 flex items-center justify-center gap-3">
+                                 <i data-lucide="scan-face" size="14"></i> Complete Journey
+                            </button>
+                        </div>
                     </div>
                 `;
-                activeContainer.appendChild(card);
-                
-                // Generate QR
                 new QRCode(document.getElementById("ticket-qr"), {
                     text: JSON.stringify({ id: activeTicket.id, u: "AIS-HYD", auth: "NEURAL-PRO" }),
-                    width: 210,
-                    height: 210,
-                    colorDark: "#0f172a",
-                    colorLight: "#ffffff",
+                    width: 210, height: 210, colorDark: "#0f172a", colorLight: "#ffffff",
                     correctLevel: QRCode.CorrectLevel.H
                 });
             } else {
-                activeContainer.innerHTML = `
-                    <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-40 text-slate-300 rounded-[40px] bg-slate-50/30">
-                         <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-sm mb-6 border border-slate-100">
+                activeCont.innerHTML = `
+                    <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-40 text-slate-300 rounded-[40px] bg-slate-50/10">
+                         <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-sm mb-8 border border-slate-100">
                             <i data-lucide="qr-code" size="32" class="opacity-10 text-slate-400"></i>
                          </div>
-                         <p class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Vault Vector Null</p>
-                         <button onclick="showTab('routes')" class="mt-8 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl">Purchase Digital Token</button>
+                         <h4 class="text-xl font-black text-slate-400 mb-2">Vault Vector Null</h4>
+                         <p class="text-[10px] font-black uppercase tracking-widest opacity-40 mb-10">Purchase a token to access network</p>
+                         <button onclick="showTab('routes')" class="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl">Purchase Digital Token</button>
                     </div>
                 `;
             }
 
-            if (pastTrips.length > 0) {
-                if (historyEmpty) historyEmpty.classList.add('hidden');
-                pastTrips.forEach(trip => {
-                    const lineCol = trip.line === 'Red' ? 'bg-red-500' : trip.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
-                    const div = document.createElement('div');
-                    div.className = "bg-white p-8 rounded-[36px] border border-slate-100 flex items-center justify-between group hover:border-blue-200 transition-all shadow-sm hover:shadow-md";
-                    div.innerHTML = `
-                        <div class="flex items-center gap-6">
-                            <div class="w-3 h-14 rounded-full ${lineCol} shadow-sm group-hover:scale-y-110 transition-transform"></div>
-                            <div>
-                                <p class="text-[16px] font-black text-slate-900 tracking-tight">${trip.from} <span class="text-slate-300 font-normal mx-2 opacity-50"><i data-lucide="chevrons-right" class="inline" size="16"></i></span> ${trip.to}</p>
-                                <div class="flex items-center gap-3 mt-2 text-slate-400">
-                                    <p class="text-[9px] font-black uppercase tracking-widest">${trip.timestamp}</p>
-                                    <span class="w-1 h-1 rounded-full bg-slate-200"></span>
-                                    <div class="flex items-center gap-1">
-                                        <i data-lucide="qr-code" size="10" class="opacity-40"></i>
-                                        <p class="text-[9px] font-black uppercase tracking-widest opacity-60">${trip.id}</p>
+            // Render History
+            if (historyCont) {
+                if (pastTrips.length === 0) {
+                    if (historyEmpty) historyEmpty.classList.remove('hidden');
+                } else {
+                    if (historyEmpty) historyEmpty.classList.add('hidden');
+                    pastTrips.forEach(trip => {
+                        const lineCol = trip.line === 'Red' ? 'bg-red-500' : trip.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
+                        const div = document.createElement('div');
+                        div.className = "bg-white p-8 rounded-[40px] border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between group hover:border-blue-200 transition-all shadow-sm hover:shadow-md gap-6 mb-4";
+                        div.innerHTML = `
+                            <div class="flex items-center gap-8">
+                                <div class="w-12 h-12 rounded-[20px] ${lineCol} flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
+                                    <i data-lucide="map-pin" size="20"></i>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-4 mb-2">
+                                        <h5 class="text-[18px] font-black text-slate-900 tracking-tight">${trip.from}</h5>
+                                        <i data-lucide="arrow-right" class="text-slate-300" size="14"></i>
+                                        <h5 class="text-[18px] font-black text-slate-900 tracking-tight">${trip.to}</h5>
+                                    </div>
+                                    <div class="flex items-center gap-4 text-slate-400">
+                                        <p class="text-[9px] font-black uppercase tracking-widest">${trip.timestamp}</p>
+                                        <span class="w-1 h-1 rounded-full bg-slate-200"></span>
+                                        <p class="text-[9px] font-black uppercase tracking-widest text-blue-600">₹${trip.fare} Network Fee</p>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-xl font-black text-slate-900 tabular-nums">₹${trip.fare}</p>
-                            <span class="text-[8px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 inline-block mt-2">Archived Vector</span>
-                        </div>
-                    `;
-                    historyContainer.appendChild(div);
-                });
-            } else {
-                if (historyEmpty) historyEmpty.classList.remove('hidden');
+                            <div class="flex flex-col lg:items-end border-t lg:border-t-0 pt-4 lg:pt-0 border-slate-50">
+                                <span class="text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 inline-block mb-2">Vector Archived</span>
+                                <p class="text-[10px] font-black text-slate-300 tabular-nums">ID: ${trip.id}</p>
+                            </div>
+                        `;
+                        historyCont.appendChild(div);
+                    });
+                }
             }
             lucide.createIcons();
         }
@@ -2043,13 +2285,17 @@ HTML_TEMPLATE = """
         }
 
         function showTab(id) {
+            tabState = id;
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.mobile-link').forEach(l => l.classList.remove('active'));
             
-            document.getElementById('tab-'+id).classList.add('active');
-            document.getElementById('mob-'+id).classList.add('active');
+            const tab = document.getElementById('tab-'+id);
+            const mob = document.getElementById('mob-'+id);
+            if (tab) tab.classList.add('active');
+            if (mob) mob.classList.add('active');
             
             if(id !== 'map') closeOverlay();
+            if(id === 'tickets' || id === 'history') renderTickets();
         }
 
         function closeOverlay() {
@@ -2103,9 +2349,174 @@ HTML_TEMPLATE = """
             return fetch(fullUrl, options);
         }
 
+        const interchangeData = {
+            'Ameerpet': {
+                lines: ['Red', 'Blue'],
+                guidance: [
+                    "Red Line platforms are situated on Level 1.",
+                    "Blue Line platforms are situated on Level 2.",
+                    "Use the central concourse escalators for rapid transition between levels.",
+                    "Check dynamic signage for platform occupancy real-time."
+                ]
+            },
+            'MGBS': {
+                lines: ['Red', 'Green'],
+                guidance: [
+                    "Transfer between the terminal hubs via the dedicated Interchange Walkway.",
+                    "Red Line serves the North-South corridor (Level 1).",
+                    "Green Line serves the East corridor (Adjacent Wing).",
+                    "Follow the floor-haptic strips for low-visibility guidance."
+                ]
+            },
+            'Parade Ground': {
+                lines: ['Blue', 'Green'],
+                guidance: [
+                    "Blue Line services operate from the Primary Concourse (Level 1).",
+                    "Green Line platforms are elevated at Level 2.",
+                    "The transition typically takes 3-4 minutes via the designated escalators.",
+                    "Neural projection shows optimal boarding at the center of the train for faster exit."
+                ]
+            }
+        };
+
+        function closeInterchangeModal() {
+            document.getElementById('interchange-modal').classList.add('hidden');
+        }
+
+        function openInterchangeModal(s) {
+            const data = interchangeData[s.name];
+            if (!data) return;
+
+            document.getElementById('modal-title').innerText = s.name + ' Interchange';
+            const badges = document.getElementById('line-badges');
+            badges.innerHTML = '';
+            data.lines.forEach(line => {
+                const b = document.createElement('span');
+                const color = line === 'Red' ? 'bg-red-500' : line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
+                b.className = `px-3 py-1 rounded-full text-[10px] font-black text-white uppercase tracking-widest ${color}`;
+                b.innerText = line + ' Line';
+                badges.appendChild(b);
+            });
+
+            const guidance = document.getElementById('transfer-guidance');
+            guidance.innerHTML = '';
+            data.guidance.forEach(step => {
+                const div = document.createElement('div');
+                div.className = "flex gap-4 items-start";
+                div.innerHTML = `
+                    <div class="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                        <span class="text-[10px] font-black text-blue-600">${data.guidance.indexOf(step) + 1}</span>
+                    </div>
+                    <p class="text-sm font-bold text-slate-600 leading-relaxed">${step}</p>
+                `;
+                guidance.appendChild(div);
+            });
+
+            document.getElementById('interchange-modal').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function clearMapSearch() {
+            const input = document.getElementById('map-search');
+            input.value = '';
+            filterMapStations('');
+            document.getElementById('map-suggestions').classList.add('hidden');
+            document.getElementById('search-clear').classList.add('hidden');
+        }
+
+        function showMapSuggestions(val) {
+            const sugg = document.getElementById('map-suggestions');
+            const q = val.toLowerCase().trim();
+            
+            if (q.length < 1) {
+                sugg.classList.add('hidden');
+                return;
+            }
+
+            const matches = stations.filter(s => s.name.toLowerCase().includes(q));
+            if (matches.length === 0) {
+                sugg.classList.add('hidden');
+                return;
+            }
+
+            sugg.innerHTML = '';
+            matches.forEach(m => {
+                const div = document.createElement('div');
+                div.className = "flex items-center gap-4 p-3 hover:bg-slate-50 rounded-xl cursor-pointer transition-all group";
+                const color = m.line === 'Red' ? 'bg-red-500' : m.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
+                div.innerHTML = `
+                    <div class="w-8 h-8 ${color} rounded-lg flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform">
+                        <i data-lucide="map-pin" size="14"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-xs font-black text-slate-800 uppercase tracking-tight">${m.name}</p>
+                        <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest">${m.line} Line Terminal</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-slate-200 group-hover:text-blue-500" size="14"></i>
+                `;
+                div.onclick = () => {
+                    const node = document.getElementById(`station-${m.id}`);
+                    if (node) node.dispatchEvent(new Event('click'));
+                    
+                    // Center View
+                    const svg = document.getElementById('network-svg');
+                    const vb = svg.viewBox.baseVal;
+                    vb.x = m.x - vb.width/2;
+                    vb.y = m.y - vb.height/2;
+
+                    clearMapSearch();
+                };
+                sugg.appendChild(div);
+            });
+
+            sugg.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function filterMapStations(query) {
+            const q = query.toLowerCase().trim();
+            const g = document.getElementById('map-stations');
+            const clearBtn = document.getElementById('search-clear');
+            
+            if (q === '') clearBtn.classList.add('hidden');
+            else clearBtn.classList.remove('hidden');
+
+            showMapSuggestions(query);
+
+            if (!g) return;
+
+            const stationNodes = g.querySelectorAll('g[id^="station-"]');
+            stationNodes.forEach(node => {
+                const name = node.querySelector('text').textContent.toLowerCase();
+                if (q === '' || name.includes(q)) {
+                    node.style.opacity = '1';
+                    node.style.filter = q !== '' ? 'drop-shadow(0 0 15px rgba(59, 130, 246, 0.8))' : 'none';
+                    if (q !== '' && name.includes(q)) {
+                        node.classList.add('animate-pulse');
+                        node.querySelector('circle').setAttribute('r', '14');
+                    } else {
+                        node.classList.remove('animate-pulse');
+                        node.querySelector('circle').setAttribute('r', '8');
+                    }
+                } else {
+                    node.style.opacity = '0.05';
+                    node.style.filter = 'grayscale(1)';
+                    node.classList.remove('animate-pulse');
+                    node.querySelector('circle').setAttribute('r', '8');
+                }
+            });
+
+            const lines = document.getElementById('map-lines');
+            if (lines) {
+                lines.style.opacity = q === '' ? '1' : '0.1';
+            }
+        }
+
         function setupMap() {
             const lineGroup = document.getElementById('map-lines');
             const g = document.getElementById('map-stations');
+            
+            const interchanges = Object.keys(interchangeData);
             
             // Define sequences for lines
             const lineSequences = {
@@ -2142,16 +2553,68 @@ HTML_TEMPLATE = """
                     overlay.classList.remove('translate-x-full');
                     
                     document.getElementById('ov-name').innerText = s.name;
+                    document.getElementById('ov-weather').classList.add('hidden');
                     
                     const ovLine = document.getElementById('ov-line');
                     ovLine.innerText = s.line + ' LINE';
                     ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (s.line === 'Red' ? 'bg-red-50 text-red-600' : s.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
                     
+                    // Cleanup old interchange button
+                    const oldBtn = document.getElementById('ov-inter-btn');
+                    if (oldBtn) oldBtn.remove();
+
+                    // Show interchange details if applicable
+                    if (interchanges.includes(s.name)) {
+                        openInterchangeModal(s);
+                        const interBtn = document.createElement('button');
+                        interBtn.id = 'ov-inter-btn';
+                        interBtn.onclick = () => openInterchangeModal(s);
+                        interBtn.className = "w-full mt-4 py-3 bg-blue-50 text-blue-600 rounded-xl font-black text-[9px] uppercase tracking-widest border border-blue-100 mb-6 flex items-center justify-center gap-2";
+                        interBtn.innerHTML = `<i data-lucide="shuffle" size="12"></i> View Interchange Guidance`;
+                        document.getElementById('ov-name').after(interBtn);
+                    }
+
+                    // Fetch Station Specific Weather
+                    try {
+                        const wRes = await fetch('/api/weather', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ lat: s.lat, lng: s.lng })
+                        });
+                        const wData = await wRes.json();
+                        const wEl = document.getElementById('ov-weather');
+                        const wVal = document.getElementById('ov-weather-val');
+                        wVal.innerText = `${wData.temp}°C, ${wData.condition}`;
+                        wEl.classList.remove('hidden');
+                        lucide.createIcons();
+                    } catch (e) { console.warn("Station weather fetch failed"); }
+                    
                     const am = document.getElementById('ov-amenities'); am.innerHTML = '';
-                    (s.amenities || ['Ticket Counters', 'Tactile Flooring', 'CC Camera', 'Elevator']).forEach(a => {
+                    const amenities = s.amenities || ['Express Check-in', 'Tactile Pathing', 'HD Surveillance', 'Emergency Ops Center'];
+                    
+                    amenities.forEach(a => {
                         const dev = document.createElement('div'); 
-                        dev.className = 'bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-2';
-                        dev.innerHTML = `<span class="text-[9px] font-black text-slate-400 uppercase">Available</span><span class="text-[11px] font-bold text-slate-700">${a}</span>`;
+                        dev.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:border-blue-200 group';
+                        
+                        // Select icon based on keyword
+                        let icon = 'info';
+                        if (a.includes('Food') || a.includes('KFC') || a.includes('Snack') || a.includes('Court') || a.includes('Coffee')) icon = 'utensils';
+                        if (a.includes('Parking') || a.includes('Stand')) icon = 'parking-circle';
+                        if (a.includes('ATM') || a.includes('Bank')) icon = 'credit-card';
+                        if (a.includes('Clinic') || a.includes('Medical')) icon = 'heart-pulse';
+                        if (a.includes('Mall') || a.includes('Shopping') || a.includes('Arcade')) icon = 'shopping-bag';
+                        if (a.includes('Interchange') || a.includes('Terminal') || a.includes('Link')) icon = 'shuffle';
+                        if (a.includes('Escalator') || a.includes('Elevator')) icon = 'arrow-up-circle';
+                        
+                        dev.innerHTML = `
+                            <div class="w-8 h-8 bg-slate-50 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 rounded-lg flex items-center justify-center shrink-0 transition-colors">
+                                <i data-lucide="${icon}" size="14"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-[11px] font-black text-slate-800 uppercase tracking-tight">${a}</h4>
+                                <p class="text-[8px] font-bold text-slate-400 uppercase mt-0.5 tracking-widest">Verified Service</p>
+                            </div>
+                        `;
                         am.appendChild(dev);
                     });
 
@@ -2341,7 +2804,10 @@ HTML_TEMPLATE = """
             if (navigator.geolocation) {
                 document.getElementById('near-name').innerText = "Refreshing...";
                 navigator.geolocation.getCurrentPosition(
-                    pos => updateBoardData(pos.coords.latitude, pos.coords.longitude),
+                    pos => {
+                        lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                        updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                    },
                     err => alert("GPS Restricted. Please check permissions."),
                     { enableHighAccuracy: true, timeout: 5000 }
                 );
@@ -2368,7 +2834,10 @@ HTML_TEMPLATE = """
             if (navigator.geolocation) {
                 // Get one point immediately for speed
                 navigator.geolocation.getCurrentPosition(
-                    pos => updateBoardData(pos.coords.latitude, pos.coords.longitude),
+                    pos => {
+                        lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                        updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                    },
                     err => {
                         console.warn("Rapid fix failed. Waiting for satellite stream.");
                     },
@@ -2377,10 +2846,14 @@ HTML_TEMPLATE = """
 
                 // Start continuous watch
                 navigator.geolocation.watchPosition(
-                    pos => updateBoardData(pos.coords.latitude, pos.coords.longitude),
+                    pos => {
+                        lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                        updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                    },
                     err => {
                         if (document.getElementById('near-name').innerText === "Acquiring Fix...") {
                              const ameerpet = stations.find(s => s.name === 'Ameerpet');
+                             lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
                              updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
                         }
                     },
@@ -2388,8 +2861,23 @@ HTML_TEMPLATE = """
                 );
             } else {
                 const ameerpet = stations.find(s => s.name === 'Ameerpet');
+                lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
                 updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
             }
+
+            // Atmosphere Refresh (60s)
+            if (weatherInterval) clearInterval(weatherInterval);
+            weatherInterval = setInterval(refreshWeather, 60000);
+
+            // Global shortcut for Map Search
+            window.addEventListener('keydown', (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                    if (tabState === 'map') {
+                        e.preventDefault();
+                        document.getElementById('map-search')?.focus();
+                    }
+                }
+            });
         }
 
         async function planJourney() {
@@ -2438,6 +2926,36 @@ HTML_TEMPLATE = """
                 loadBar.className = 'h-full transition-all duration-1000 ' + 
                                   (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
                 
+                // Personalized Recommendations rendering
+                const persRecCont = document.getElementById('personalized-recommendations');
+                persRecCont.innerHTML = '';
+                if (data.personalized_advices && data.personalized_advices.length > 0) {
+                    persRecCont.classList.remove('hidden');
+                    data.personalized_advices.forEach(adv => {
+                        const card = document.createElement('div');
+                        card.className = "bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:shadow-md group";
+                        
+                        let accentColor = "bg-blue-50 text-blue-600";
+                        if (adv.type === 'congestion') accentColor = "bg-amber-50 text-amber-600";
+                        if (adv.type === 'weather') accentColor = "bg-sky-50 text-sky-600";
+                        if (adv.type === 'it-hub') accentColor = "bg-indigo-50 text-indigo-600";
+
+                        card.innerHTML = `
+                            <div class="w-12 h-12 ${accentColor} rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                                <i data-lucide="${adv.icon}" size="20"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-black text-slate-800 uppercase tracking-tight mb-1">${adv.title}</h4>
+                                <p class="text-[11px] font-bold text-slate-500 leading-relaxed">${adv.text}</p>
+                            </div>
+                        `;
+                        persRecCont.appendChild(card);
+                    });
+                    lucide.createIcons();
+                } else {
+                    persRecCont.classList.add('hidden');
+                }
+
                 lastCalculatedFare = data.fare;
                 
                 const seq = document.getElementById('route-seq'); seq.innerHTML = '';
@@ -2625,17 +3143,16 @@ HTML_TEMPLATE = """
                 const res = await fetchWithSim('/api/live-map');
                 const data = await res.json();
                 
-                // Dynamic Ticker Updates
+                // Update local status ticker
                 const ticker = document.getElementById('neural-ticker');
                 if (ticker && data.trains) {
                     const messages = [
                         `<span>SYS_MSG</span> NEURAL MATRIX STABILIZED. ${data.trains.length} TRAINS IN VECTOR STREAM.`,
                         `<span>AI_LOAD</span> REAL-TIME DENSITY OPTIMIZATION ACTIVE.`,
-                        `<span>METRIC</span> NETWORK LATENCY: 14MS.`,
+                        `<span>METRIC</span> NETWORK LATENCY: ${Math.floor(Math.random()*15 + 5)}MS.`,
                         `<span>SATELLITE</span> HIGH EQUATORIAL ACCURACY ATTAINED.`
                     ];
-                    // Randomly update one item occasionally or keep it interesting
-                    if (Math.random() > 0.7) {
+                    if (Math.random() > 0.6) {
                         const items = ticker.querySelectorAll('.ticker-item');
                         if (items.length > 0) {
                             const idx = Math.floor(Math.random() * items.length);
@@ -2645,61 +3162,67 @@ HTML_TEMPLATE = """
                 }
 
                 const g = document.getElementById('map-trains');
-                const existingTrains = Array.from(g.querySelectorAll('.train-icon'));
                 const seenIds = new Set();
 
-                data.trains.forEach(t => {
-                    seenIds.add(t.trip_id);
-                    const s1 = stations.find(s => s.id === t.from_id);
-                    const s2 = stations.find(s => s.id === t.to_id);
-                    if(!s1 || !s2) return;
-
-                    const curX = s1.x + (s2.x - s1.x) * t.progress;
-                    const curY = s1.y + (s2.y - s1.y) * t.progress;
-
-                    // Calculate rotation for directed icon
-                    const angle = Math.atan2(s2.y - s1.y, s2.x - s1.x) * 180 / Math.PI;
-
-                    let train = g.querySelector(`[data-trip-id="${t.trip_id}"]`);
-                    if(!train) {
-                        train = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-                        train.setAttribute('class', 'train-icon');
-                        train.setAttribute('data-trip-id', t.trip_id);
-                        train.style.transition = 'transform 2.1s linear';
+                if (data.trains) {
+                    data.trains.forEach(t => {
+                        seenIds.add(t.trip_id);
+                        trainStates.set(t.trip_id, t);
                         
+                        let train = g.querySelector(`[data-trip-id="${t.trip_id}"]`);
                         const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#22c55e';
                         
-                        const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                        outer.setAttribute('r', 16);
-                        outer.setAttribute('fill', color);
-                        outer.setAttribute('class', 'animate-pulse opacity-20');
-                        
-                        // Directed Train Icon (Arrow shape)
-                        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        icon.setAttribute('d', 'M -8,-5 L 8,0 L -8,5 Z'); // Triangle pointing right
-                        icon.setAttribute('fill', color);
-                        icon.setAttribute('stroke', '#fff');
-                        icon.setAttribute('stroke-width', '1');
-                        icon.setAttribute('class', 'train-shape');
-                        
-                        train.appendChild(outer);
-                        train.appendChild(icon);
-                        g.appendChild(train);
-                        
-                        train.style.transition = 'none';
-                        train.setAttribute('transform', `translate(${curX}, ${curY}) rotate(${angle})`);
-                        setTimeout(() => train.style.transition = 'transform 2.1s linear', 50);
-                    } else {
-                        train.setAttribute('transform', `translate(${curX}, ${curY}) rotate(${angle})`);
+                        if(!train) {
+                            train = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                            train.setAttribute('class', 'train-icon cursor-help');
+                            train.setAttribute('data-trip-id', t.trip_id);
+                            
+                            const tail = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            tail.setAttribute('class', 'train-tail');
+                            tail.setAttribute('fill', 'none');
+                            tail.setAttribute('stroke', color);
+                            tail.setAttribute('stroke-width', '3');
+                            tail.setAttribute('stroke-linecap', 'round');
+                            tail.setAttribute('opacity', '0.4');
+                            train.appendChild(tail);
+
+                            const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            outer.setAttribute('r', 16);
+                            outer.setAttribute('fill', color);
+                            outer.setAttribute('class', 'train-pulse animate-pulse opacity-20');
+                            train.appendChild(outer);
+                            
+                            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            icon.setAttribute('d', 'M -8,-5 L 10,0 L -8,5 Z'); 
+                            icon.setAttribute('fill', color);
+                            icon.setAttribute('stroke', '#fff');
+                            icon.setAttribute('stroke-width', '1.5');
+                            icon.setAttribute('class', 'train-shape');
+                            train.appendChild(icon);
+                            g.appendChild(train);
+                        }
+
+                        const speedNormalized = Math.min(t.speed / 80, 1.5);
+                        const pulse = train.querySelector('.train-pulse');
+                        if (pulse) {
+                            pulse.style.animationDuration = `${Math.max(0.3, 2 - (speedNormalized * 1.5))}s`;
+                            pulse.setAttribute('r', 12 + (speedNormalized * 10));
+                        }
+                        train.setAttribute('title', `Trip: ${t.trip_id} | Spd: ${t.speed} km/h | Bound: ${t.final_stop}`);
+                    });
+                }
+
+                // Cleanup vanished trains
+                Array.from(g.querySelectorAll('.train-icon')).forEach(el => {
+                    const id = el.getAttribute('data-trip-id');
+                    if(!seenIds.has(id)) {
+                        el.remove();
+                        trainStates.delete(id);
                     }
                 });
 
-                existingTrains.forEach(t => {
-                    if(!seenIds.has(t.getAttribute('data-trip-id'))) t.remove();
-                });
-            } catch (e) {}
+            } catch (e) { console.error("Sim Matrix Error:", e); }
         }
-        setInterval(updateLiveTrains, 2000);
 
         window.onload = () => {
             setupMap(); 
@@ -2709,7 +3232,8 @@ HTML_TEMPLATE = """
             loadFeedback(); 
             renderTickets();
             loadSavedVectors();
-            activeUpdateInterval = setInterval(updateLiveTrains, 15000); 
+            activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
+            trainAnimationId = requestAnimationFrame(animateTrains);
         };
     </script>
 </body>
