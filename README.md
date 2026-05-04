@@ -39,6 +39,8 @@ The project includes automated CSV dataset generation (`final_metro_dataset.csv`
 
 ## 🛠️ Key Features
 - **Path Architect**: Multi-line route planning with interchange instructions.
+- **Station Intelligence Directory**: A comprehensive searchable index of the 57-station network with amenity logging and spatial filtering.
+- **Enhanced Intel Overlays**: Deep-dive station statistics including satellite-synced first/last train timings and landmark proximity logic.
 - **Digital Vault**: Secure ticket generation with QR codes and session-persistent history.
 - **Neural Sentiment Hub**: Feedback system with local matrix persistence and cloud synchronization.
 - **Mobile Flux UI**: Fully responsive bento-grid interface optimized for on-the-go tracking.
