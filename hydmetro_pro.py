@@ -217,7 +217,7 @@ STATIONS_LIST = [
     {'id': 'B23', 'name': 'Raidurg', 'line': 'Blue', 'lat': 17.4429, 'lng': 78.3750},
 
     # GREEN LINE (1-10)
-    {'id': 'G1', 'name': 'JBS Parade Ground', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002},
+    {'id': 'G1', 'name': 'Jubilee Bus Station', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002},
     {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985, 'name_alias': 'Parade Ground'},
     {'id': 'G3', 'name': 'Secunderabad West', 'line': 'Green', 'lat': 17.4410, 'lng': 78.5020},
     {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'lat': 17.4335, 'lng': 78.5020},
@@ -1176,17 +1176,33 @@ HTML_TEMPLATE = """
 
         /* Schematic Map Refinements */
         .station-label-schematic { 
-            font-size: var(--map-label-size, 12px); 
+            font-size: var(--map-label-size, 16px); 
             font-weight: 1000; 
             fill: #000000; 
             pointer-events: none; 
             text-transform: uppercase; 
-            letter-spacing: 0.02em;
+            letter-spacing: 0.05em;
             paint-order: stroke;
             stroke: #ffffff;
-            stroke-width: 4px;
+            stroke-width: 6px;
             opacity: 1;
             transition: opacity 0.3s, font-size 0.2s, stroke-width 0.2s;
+        }
+        .orr-boundary {
+            fill: #fefce8;
+            stroke: #fde68a;
+            stroke-width: 15px;
+            stroke-dasharray: 40,20;
+            opacity: 0.4;
+        }
+        .corridor-tag {
+            font-size: 14px;
+            font-weight: 1000;
+            fill: white;
+            paint-order: stroke;
+            stroke: rgba(0,0,0,0.2);
+            stroke-width: 2px;
+            text-transform: uppercase;
         }
         .landmark-label {
             font-size: 9px;
@@ -1988,6 +2004,16 @@ HTML_TEMPLATE = """
         let isDragging = false;
         let lastMousePos = { x: 0, y: 0 };
 
+        // Global Projection Config
+        const orrMinLat = 17.15, orrMaxLat = 17.65;
+        const orrMinLng = 78.18, orrMaxLng = 78.75;
+        const width = 2400, height = 1600, padding = 150;
+
+        const project = (lat, lng) => ({
+            x: padding + ((lng - orrMinLng) / (orrMaxLng - orrMinLng)) * (width - 2 * padding),
+            y: padding + (1 - (lat - orrMinLat) / (orrMaxLat - orrMinLat)) * (height - 2 * padding)
+        });
+
         function initSchematicMap() {
             const viewport = document.getElementById('schematic-viewport');
             const svg = document.getElementById('metro-svg');
@@ -1996,25 +2022,28 @@ HTML_TEMPLATE = """
             const landmarksG = document.getElementById('svg-landmarks');
             const tooltip = document.getElementById('station-tooltip');
 
-            // NEW: Neural Geographic Projection Logic
-            const lats = stations.map(s => s.lat).filter(l => l);
-            const lngs = stations.map(s => s.lng).filter(l => l);
-            const allLats = [...lats, ...landmarksData.map(l => l.lat)];
-            const allLngs = [...lngs, ...landmarksData.map(l => l.lng)];
+            // Draw ORR Boundary
+            const orrPoints = [];
+            for(let a=0; a<=360; a+=5) {
+                const ang = a * Math.PI / 180;
+                const lat = 17.40 + 0.23 * Math.sin(ang);
+                const lng = 78.46 + 0.27 * Math.cos(ang);
+                const p = project(lat, lng);
+                orrPoints.push(`${p.x},${p.y}`);
+            }
+            const orrPath = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            orrPath.setAttribute("points", orrPoints.join(" "));
+            orrPath.setAttribute("class", "orr-boundary");
+            svg.prepend(orrPath);
 
-            const minLat = Math.min(...allLats);
-            const maxLat = Math.max(...allLats);
-            const minLng = Math.min(...allLngs);
-            const maxLng = Math.max(...allLngs);
-
-            const width = 2400;
-            const height = 1600;
-            const padding = 250;
-
-            const project = (lat, lng) => ({
-                x: padding + ((lng - minLng) / (maxLng - minLng)) * (width - 2 * padding),
-                y: padding + (1 - (lat - minLat) / (maxLat - minLat)) * (height - 2 * padding)
-            });
+            // 4. Add Corridor Tags
+            const corridorTags = [
+                { name: 'Corridor I', x: project(17.498, 78.33).x, y: project(17.498, 78.33).y, color: '#ef4444' },
+                { name: 'Corridor I', x: project(17.34, 78.56).x, y: project(17.34, 78.56).y, color: '#ef4444' },
+                { name: 'Corridor II', x: project(17.458, 78.51).x, y: project(17.458, 78.51).y, color: '#22c55e' },
+                { name: 'Corridor III', x: project(17.453, 78.36).x, y: project(17.453, 78.36).y, color: '#3b82f6' },
+                { name: 'Corridor III', x: project(17.385, 78.57).x, y: project(17.385, 78.57).y, color: '#3b82f6' }
+            ];
 
             // Map standard lat/lng to SVG space
             stations.forEach(s => {
@@ -2023,6 +2052,34 @@ HTML_TEMPLATE = """
                     s.x = coords.x;
                     s.y = coords.y;
                 }
+            });
+
+            corridorTags.forEach(tag => {
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                
+                text.textContent = tag.name;
+                text.setAttribute("x", tag.x);
+                text.setAttribute("y", tag.y);
+                text.setAttribute("class", "corridor-tag");
+                text.setAttribute("text-anchor", "middle");
+                
+                // Add background rect
+                rect.setAttribute("fill", tag.color);
+                rect.setAttribute("rx", "6");
+                rect.setAttribute("opacity", "0.9");
+                
+                landmarksG.appendChild(g);
+                g.appendChild(rect);
+                g.appendChild(text);
+                
+                // Adjust rect size to text
+                const bbox = text.getBBox();
+                rect.setAttribute("x", bbox.x - 10);
+                rect.setAttribute("y", bbox.y - 4);
+                rect.setAttribute("width", bbox.width + 20);
+                rect.setAttribute("height", bbox.height + 8);
             });
 
             // Draw Landmarks
@@ -2151,9 +2208,17 @@ HTML_TEMPLATE = """
                 }
 
                 // Substantial stagger only for dense segments to avoid overlaps
-                if (!isInterchange && (sidNum % 2 === 0)) {
-                    if (yOff !== 0) yOff *= 1.8;
-                    if (xOff !== 0) xOff *= 1.8;
+                if (!isInterchange) {
+                    const isEven = sidNum % 2 === 0;
+                    if (s.line === 'Red' && sidNum < 15) {
+                        // Dense part of Red line
+                        yOff = isEven ? -45 : -25;
+                        xOff = isEven ? -45 : -25;
+                    } else if (s.line === 'Blue' && sidNum > 15) {
+                        // Dense part of Blue line
+                        yOff = isEven ? -45 : -25;
+                        xOff = isEven ? 45 : 25;
+                    }
                 }
 
                 const labelX = s.x + xOff;
@@ -2315,23 +2380,23 @@ HTML_TEMPLATE = """
             // On mobile, we use slightly larger base for touch clarity
             const baseScreenSize = window.innerWidth < 1024 ? 14 : 16;
             
-            // Reduced power factor (0.6) means labels stay larger on screen as we zoom in
-            const targetSize = Math.max(5, baseScreenSize / Math.pow(schematicZoom, 0.6));
+            // Reduced power factor (0.4) means labels stay much larger on screen
+            const targetSize = Math.max(12, (baseScreenSize + 4) / Math.pow(schematicZoom, 0.45));
             document.documentElement.style.setProperty('--map-label-size', `${targetSize}px`);
             
             // Marker and border scaling
-            const markerBaseSize = 11;
-            const targetMarkerSize = Math.max(5, markerBaseSize / Math.pow(schematicZoom, 0.5));
+            const markerBaseSize = 14;
+            const targetMarkerSize = Math.max(8, markerBaseSize / Math.pow(schematicZoom, 0.5));
             document.querySelectorAll('.station-node circle').forEach(c => {
                 c.setAttribute('r', targetMarkerSize);
-                c.setAttribute('stroke-width', Math.max(1.8, 6 / schematicZoom));
+                c.setAttribute('stroke-width', Math.max(2.5, 8 / schematicZoom));
             });
             document.querySelectorAll('.station-node.interchange circle').forEach(c => {
-                c.setAttribute('r', targetMarkerSize * 1.7);
+                c.setAttribute('r', targetMarkerSize * 1.6);
             });
 
             // Adjust label stroke width dynamically for clarity at high zoom
-            const targetStrokeWidth = Math.max(2.5, 4.5 / Math.sqrt(schematicZoom));
+            const targetStrokeWidth = Math.max(4, 7 / Math.sqrt(schematicZoom));
             document.querySelectorAll('.station-label-schematic').forEach(l => {
                 l.style.strokeWidth = `${targetStrokeWidth}px`;
             });
@@ -2400,23 +2465,19 @@ HTML_TEMPLATE = """
             const viewport = document.getElementById('schematic-viewport');
             if (!viewport || viewport.clientWidth === 0) return;
 
-            // Ensure stations have projection coordinates
-            if (stations.some(s => s.x === undefined)) {
-                return;
-            }
+            // ORR Bounds in SVG space to ensure the map shows ORR
+            const orrMinLat = 17.15, orrMaxLat = 17.65;
+            const orrMinLng = 78.18, orrMaxLng = 78.75;
+            const p1 = project(orrMinLat, orrMinLng);
+            const p2 = project(orrMaxLat, orrMaxLng);
 
-            const xCoords = stations.map(s => s.x).filter(x => x !== undefined);
-            const yCoords = stations.map(s => s.y).filter(y => y !== undefined);
-            
-            if (xCoords.length === 0) return;
-
-            const minX = Math.min(...xCoords);
-            const maxX = Math.max(...xCoords);
-            const minY = Math.min(...yCoords);
-            const maxY = Math.max(...yCoords);
+            const minX = Math.min(p1.x, p2.x);
+            const maxX = Math.max(p1.x, p2.x);
+            const minY = Math.min(p1.y, p2.y);
+            const maxY = Math.max(p1.y, p2.y);
             
             const isMobile = window.innerWidth < 1024;
-            const padding_px = isMobile ? 30 : 120; 
+            const padding_px = isMobile ? 20 : 60; 
             const stationsWidth = maxX - minX;
             const stationsHeight = maxY - minY;
 
