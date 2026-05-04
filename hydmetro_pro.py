@@ -6,8 +6,7 @@ import random
 import requests
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
-from google import genai
-from google.genai import types
+
 
 app = Flask(__name__)
 
@@ -26,6 +25,7 @@ if GEMINI_API_KEY:
     except Exception as e:
         print(f"Gemini Init Error: {e}")
 
+
 # ==========================================
 # 1. ENHANCED DATA ENGINEERING & AI LOGIC
 # ==========================================
@@ -35,6 +35,7 @@ def get_ist_now():
     base_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
     return base_now
 
+
 def get_app_now():
     """Context-aware time for app logic."""
     if request and 'sim_hour' in request.args:
@@ -43,8 +44,10 @@ def get_app_now():
             m = int(request.args.get('sim_min', 0))
             now = get_ist_now()
             return now.replace(hour=h, minute=m, second=0, microsecond=0)
-        except: pass
+        except:
+            pass
     return get_ist_now()
+
 
 def get_ai_insight(prompt):
     """Uses Gemini to generate real-time transit insights if key is provided."""
@@ -60,34 +63,35 @@ def get_ai_insight(prompt):
         print(f"Gemini Inference Error: {e}")
         return None
 
+
 def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
     """Predicts load using the logic from the trained dataset formula with optional weather influence."""
     # Base logic (Fast fallback)
     is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
     is_it_hub = 1 if station_name in ['Hitech City', 'Madhapur', 'Raidurg'] else 0
-    is_festival = 0 # Default for live
-    
+    is_festival = 0  # Default for live
+
     score = 50 + (is_peak * 100) + (is_it_hub * 80) + (is_festival * 120)
     if is_weekend: score -= 20
-    
+
     if weather:
         if "Rain" in weather.get('condition', ''):
             score += 25
         if weather.get('temp', 30) > 35:
             score += 15
-    
+
     recommendation = "🟢 Good to travel"
-    if score > 200: 
+    if score > 200:
         load_lvl, recommendation = "High", "🔴 High Rush"
-    elif score > 140: 
+    elif score > 140:
         load_lvl, recommendation = "M-High", "🟡 Rush but manageable"
-    elif score > 100: 
+    elif score > 100:
         load_lvl, recommendation = "Medium", "🟢 Seat will be there"
     else:
         load_lvl, recommendation = "Low", "🟢 Good to travel"
 
     # Neural Enhancement: Attempt to get a real-world tip from Gemini
-    if ai_client and random.random() < 0.3: # Don't over-call during dev
+    if ai_client and random.random() < 0.3:  # Don't over-call during dev
         insight_prompt = f"Give a very short (10 words max) transit tip for someone at {station_name} metro station in Hyderabad at {hour}:00. Weather is {weather.get('condition', 'Unknown')} at {weather.get('temp', 'unknown')}C. Be witty."
         insight = get_ai_insight(insight_prompt)
         if insight:
@@ -95,15 +99,16 @@ def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
 
     return load_lvl, recommendation
 
+
 def get_live_weather(lat=None, lng=None):
     """Fetches real-time weather from Open-Meteo with extra metrics."""
     if lat is None or lng is None:
-        lat, lng = 17.3850, 78.4867 # Default Hyderabad
-        
+        lat, lng = 17.3850, 78.4867  # Default Hyderabad
+
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=relative_humidity_2m,visibility"
         data = requests.get(url, timeout=2).json()
-        
+
         wmo_mapping = {
             0: "Sunny", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
             45: "Foggy", 48: "Rime Fog", 51: "Light Drizzle", 53: "Moderate Drizzle",
@@ -113,29 +118,34 @@ def get_live_weather(lat=None, lng=None):
         }
         code = data['current_weather']['weathercode']
         condition = wmo_mapping.get(code, "Cloudy")
-        
+
         ist_now = get_ist_now()
         h_idx = ist_now.hour
-        
+
         return {
             'temp': data['current_weather']['temperature'],
             'condition': condition,
-            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(data['hourly']['relative_humidity_2m']) else 45,
-            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(data['hourly']['visibility']) else 10,
+            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(
+                data['hourly']['relative_humidity_2m']) else 45,
+            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(
+                data['hourly']['visibility']) else 10,
             'aqi': random.randint(30, 70)
         }
     except:
         return {'temp': 30, 'condition': 'Clear Sky', 'humidity': 45, 'visibility': 10, 'aqi': 42}
 
+
 def generate_ai_dataset():
     """Generates a mock ridership dataset for AI training simulation."""
     stations_for_df = [s['name'] for s in STATIONS_LIST]
     sample_size = 500
-    
+
     with open("final_metro_dataset.csv", "w", newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['stop_name', 'arrival_time', 'platform', 'hour', 'day_of_week', 'is_peak', 'is_weekend', 'is_it_hub', 'temperature', 'rainfall', 'is_festival', 'ridership'])
-        
+        writer.writerow(
+            ['stop_name', 'arrival_time', 'platform', 'hour', 'day_of_week', 'is_peak', 'is_weekend', 'is_it_hub',
+             'temperature', 'rainfall', 'is_festival', 'ridership'])
+
         it_stations = ['Hitech City', 'Madhapur', 'Raidurg']
         base_time = get_ist_now() - timedelta(days=7)
 
@@ -144,26 +154,30 @@ def generate_ai_dataset():
             stop_name = random.choice(stations_for_df)
             hour = arrival.hour
             dow = arrival.weekday()
-            
+
             is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
             is_weekend = 1 if dow >= 5 else 0
             is_it_hub = 1 if stop_name in it_stations else 0
             temp = 25 + (hour % 12)
             rainfall = random.choice([0, 0, 5, 10])
             is_festival = 0
-            
+
             noise = random.gauss(0, 10)
             ridership = int(50 + (is_peak * 100) + (is_it_hub * 80) - (is_weekend * 20) + noise)
-            
-            writer.writerow([stop_name, arrival.strftime('%Y-%m-%d %H:%M:%S'), random.choice(['1', '2']), hour, dow, is_peak, is_weekend, is_it_hub, temp, rainfall, is_festival, ridership])
+
+            writer.writerow(
+                [stop_name, arrival.strftime('%Y-%m-%d %H:%M:%S'), random.choice(['1', '2']), hour, dow, is_peak,
+                 is_weekend, is_it_hub, temp, rainfall, is_festival, ridership])
     return True
+
 
 # ==========================================
 # 2. FULL DATASET (57 STATIONS)
 # ==========================================
 STATIONS_LIST = [
     # RED LINE (1-27)
-    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'lat': 17.4933, 'lng': 78.3484, 'amenities': ['Large Parking Hub', 'Food Court', 'Medical Center']},
+    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'lat': 17.4933, 'lng': 78.3484,
+     'amenities': ['Large Parking Hub', 'Food Court', 'Medical Center']},
     {'id': 'R2', 'name': 'JNTU College', 'line': 'Red', 'lat': 17.4877, 'lng': 78.3557},
     {'id': 'R3', 'name': 'KPHB Colony', 'line': 'Red', 'lat': 17.4834, 'lng': 78.3883},
     {'id': 'R4', 'name': 'Kukatpally', 'line': 'Red', 'lat': 17.4842, 'lng': 78.3986},
@@ -173,23 +187,28 @@ STATIONS_LIST = [
     {'id': 'R8', 'name': 'Erragadda', 'line': 'Red', 'lat': 17.4572, 'lng': 78.4412},
     {'id': 'R9', 'name': 'ESI Hospital', 'line': 'Red', 'lat': 17.4517, 'lng': 78.4457},
     {'id': 'R10', 'name': 'S.R. Nagar', 'line': 'Red', 'lat': 17.4442, 'lng': 78.4484},
-    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'lat': 17.4334, 'lng': 78.4484, 'amenities': ['L3 Interchange Terminal', 'Ameerpet Metro Mall', 'Apollo Clinic']},
-    {'id': 'R12', 'name': 'Punjagutta', 'line': 'Red', 'lat': 17.4261, 'lng': 78.4522, 'amenities': ['Next Galleria Mall', 'PVR Cinemas']},
+    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'lat': 17.4334, 'lng': 78.4484,
+     'amenities': ['L3 Interchange Terminal', 'Ameerpet Metro Mall', 'Apollo Clinic']},
+    {'id': 'R12', 'name': 'Punjagutta', 'line': 'Red', 'lat': 17.4261, 'lng': 78.4522,
+     'amenities': ['Next Galleria Mall', 'PVR Cinemas']},
     {'id': 'R13', 'name': 'Irrum Manzil', 'line': 'Red', 'lat': 17.4184, 'lng': 78.4557},
     {'id': 'R14', 'name': 'Khairatabad', 'line': 'Red', 'lat': 17.4101, 'lng': 78.4611},
     {'id': 'R15', 'name': 'Lakdi-ka-pul', 'line': 'Red', 'lat': 17.4024, 'lng': 78.4657},
     {'id': 'R16', 'name': 'Assembly', 'line': 'Red', 'lat': 17.3984, 'lng': 78.4723},
     {'id': 'R17', 'name': 'Nampally', 'line': 'Red', 'lat': 17.3916, 'lng': 78.4757},
     {'id': 'R18', 'name': 'Gandhi Bhavan', 'line': 'Red', 'lat': 17.3872, 'lng': 78.4784},
-    {'id': 'R19', 'name': 'Osmania Medical College', 'name_alias': 'OMC', 'line': 'Red', 'lat': 17.3824, 'lng': 78.4812},
-    {'id': 'R20', 'name': 'MG Bus Station', 'name_alias': 'MGBS', 'line': 'Red', 'lat': 17.3776, 'lng': 78.4815, 'amenities': ['Interstate Bus Hub', 'Multi-level Parking']},
+    {'id': 'R19', 'name': 'Osmania Medical College', 'name_alias': 'OMC', 'line': 'Red', 'lat': 17.3824,
+     'lng': 78.4812},
+    {'id': 'R20', 'name': 'MG Bus Station', 'name_alias': 'MGBS', 'line': 'Red', 'lat': 17.3776, 'lng': 78.4815,
+     'amenities': ['Interstate Bus Hub', 'Multi-level Parking']},
     {'id': 'R21', 'name': 'Malakpet', 'line': 'Red', 'lat': 17.3752, 'lng': 78.4907},
     {'id': 'R22', 'name': 'New Market', 'line': 'Red', 'lat': 17.3712, 'lng': 78.5084},
     {'id': 'R23', 'name': 'Musarambagh', 'line': 'Red', 'lat': 17.3684, 'lng': 78.5212},
     {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'lat': 17.3657, 'lng': 78.5357},
     {'id': 'R25', 'name': 'Chaitanyapuri', 'line': 'Red', 'lat': 17.3612, 'lng': 78.5484},
     {'id': 'R26', 'name': 'Victoria Memorial', 'line': 'Red', 'lat': 17.3557, 'lng': 78.5512},
-    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'lat': 17.3458, 'lng': 78.5524, 'amenities': ['South Hub Terminal', 'Auto Stand']},
+    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'lat': 17.3458, 'lng': 78.5524,
+     'amenities': ['South Hub Terminal', 'Auto Stand']},
 
     # BLUE LINE (1-23)
     {'id': 'B1', 'name': 'Nagole', 'line': 'Blue', 'lat': 17.3941, 'lng': 78.5668},
@@ -218,7 +237,8 @@ STATIONS_LIST = [
 
     # GREEN LINE (1-10)
     {'id': 'G1', 'name': 'JBS Parade Ground', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002},
-    {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985, 'name_alias': 'Parade Ground'},
+    {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985,
+     'name_alias': 'Parade Ground'},
     {'id': 'G3', 'name': 'Secunderabad West', 'line': 'Green', 'lat': 17.4410, 'lng': 78.5020},
     {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'lat': 17.4335, 'lng': 78.5020},
     {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'lat': 17.4215, 'lng': 78.5030},
@@ -243,8 +263,10 @@ LANDMARKS = [
 ]
 
 CONNECTIONS = {
-    'Red': ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22', 'R23', 'R24', 'R25', 'R26', 'R27'],
-    'Blue': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'],
+    'Red': ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16',
+            'R17', 'R18', 'R19', 'R20', 'R21', 'R22', 'R23', 'R24', 'R25', 'R26', 'R27'],
+    'Blue': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16',
+             'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'],
     'Green': ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']
 }
 
@@ -255,6 +277,7 @@ CONNECTIONS = {
 GTFS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gtfs.csv')
 _GTFS_CACHE = None  # Global cache for performance
 
+
 def ensure_gtfs(force=False):
     """Generates a high-frequency, dynamic GTFS simulation."""
     global _GTFS_CACHE
@@ -263,7 +286,7 @@ def ensure_gtfs(force=False):
         with open(GTFS_FILE, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['trip_id', 'station_id', 'arrival_time', 'platform', 'direction', 'final_stop', 'line'])
-            
+
             now_base = get_ist_now()
             start_day = now_base.day
 
@@ -271,29 +294,31 @@ def ensure_gtfs(force=False):
                 for dir_type in ['Forward', 'Backward']:
                     path = stations if dir_type == 'Forward' else stations[::-1]
                     final_name = next(s['name'] for s in STATIONS_LIST if s['id'] == path[-1])
-                    
+
                     # More realistic intervals: 6 mins peak, 12 mins off-peak
                     current_trip_time = now_base.replace(hour=4, minute=0, second=0, microsecond=0)
                     trip_idx = 0
                     while current_trip_time.day == start_day and current_trip_time.hour < 23:
                         h = current_trip_time.hour
                         interval = 6 if (7 <= h <= 10 or 17 <= h <= 21) else 12
-                        
+
                         trip_id = f"{line}_{dir_type}_{trip_idx}"
                         trip_start_time = current_trip_time
-                        
+
                         # Platform Logic: Red (1,2), Blue (3,4), Green (1,2 - separate area)
                         p_base = 1 if line == 'Red' or line == 'Green' else 3
                         platform = str(p_base if dir_type == 'Forward' else p_base + 1)
 
                         for sid in path:
-                            writer.writerow([trip_id, sid, trip_start_time.strftime('%H:%M:%S'), platform, dir_type, final_name, line])
+                            writer.writerow(
+                                [trip_id, sid, trip_start_time.strftime('%H:%M:%S'), platform, dir_type, final_name,
+                                 line])
                             trip_start_time += timedelta(minutes=2)
-                        
+
                         current_trip_time += timedelta(minutes=interval)
                         trip_idx += 1
         print("GTFS Generation Complete.")
-        _GTFS_CACHE = None # Invalidate cache
+        _GTFS_CACHE = None  # Invalidate cache
 
     if _GTFS_CACHE is None:
         try:
@@ -301,16 +326,19 @@ def ensure_gtfs(force=False):
                 _GTFS_CACHE = list(csv.DictReader(f))
         except:
             _GTFS_CACHE = []
-    
+
     return _GTFS_CACHE
+
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
-    dlat, dlon = math.radians(lat2-lat1), math.radians(lon2-lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     return R * 2 * math.asin(math.sqrt(a))
 
+
 FEEDBACK_CLOUD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'feedback_cloud.json')
+
 
 def save_feedback_to_cloud(feedback_data):
     """Saves feedback to a server-side JSON file (simulating cloud storage)."""
@@ -320,13 +348,13 @@ def save_feedback_to_cloud(feedback_data):
                 history = json.load(f)
         else:
             history = []
-        
+
         history.append(feedback_data)
-        
+
         # Limit cloud history to prevent massive file growth
         if len(history) > 1000:
             history = history[-1000:]
-            
+
         with open(FEEDBACK_CLOUD_FILE, 'w') as f:
             json.dump(history, f)
         return True
@@ -334,32 +362,36 @@ def save_feedback_to_cloud(feedback_data):
         print(f"Cloud Feed Sync Error: {e}")
         return False
 
+
 # ==========================================
 # 4. API ENDPOINTS
 # ==========================================
 
 @app.route('/')
 def index():
-    ensure_gtfs(force=True) # Ensure GTFS reflects new stations
-    return render_template_string(HTML_TEMPLATE, ALL_STATIONS=STATIONS_LIST, CONNECTIONS=CONNECTIONS, LANDMARKS=LANDMARKS)
+    ensure_gtfs(force=True)  # Ensure GTFS reflects new stations
+    return render_template_string(HTML_TEMPLATE, ALL_STATIONS=STATIONS_LIST, CONNECTIONS=CONNECTIONS,
+                                  LANDMARKS=LANDMARKS)
+
 
 @app.route('/api/feedback', methods=['POST'])
 def api_feedback():
     data = request.json
     if not data or 'message' not in data:
         return jsonify({'status': 'error', 'message': 'Invalid data'}), 400
-    
+
     # Enrich with server timestamp
     data['server_received'] = get_app_now().strftime('%Y-%m-%d %H:%M:%S')
-    
+
     success = save_feedback_to_cloud(data)
     return jsonify({'status': 'success' if success else 'failed'})
+
 
 @app.route('/api/nearest', methods=['POST'])
 def api_nearest():
     data = request.json or {}
     dist = 0
-    
+
     if 'station_id' in data:
         nearest = next(s for s in STATIONS_LIST if s['id'] == data['station_id'])
         lat, lng = nearest['lat'], nearest['lng']
@@ -367,21 +399,21 @@ def api_nearest():
         lat, lng = data.get('lat', 17.3850), data.get('lng', 78.4867)
         nearest = min(STATIONS_LIST, key=lambda s: haversine(lat, lng, s['lat'], s['lng']))
         dist = haversine(lat, lng, nearest['lat'], nearest['lng'])
-    
+
     # Urban Walking Adjustment: approx 1.35x crow-flies distance for city streets
     walk_dist = dist * 1.35
-    walking_mins = int((walk_dist / 5.0) * 60) # Assume 5km/h walking speed
+    walking_mins = int((walk_dist / 5.0) * 60)  # Assume 5km/h walking speed
     if walking_mins < 1: walking_mins = 1
-    
+
     name = nearest.get('name_alias', nearest['name'])
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
-    
+
     trips = ensure_gtfs()
     now = get_app_now()
     now_str = now.strftime('%H:%M:%S')
     one_hour_later = now + timedelta(hours=1)
     oh_str = one_hour_later.strftime('%H:%M:%S')
-    
+
     upcoming = []
     for row in trips:
         if row['station_id'] in matching_ids and now_str < row['arrival_time'] < oh_str:
@@ -391,18 +423,19 @@ def api_nearest():
                 arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                 diff = (arrival_dt - now).total_seconds()
                 if diff < 0: continue
-                
+
                 m, s = divmod(int(diff), 60)
                 row_copy = row.copy()
                 row_copy['eta'] = f"{m:02d}:{s:02d}"
                 upcoming.append(row_copy)
-            except: continue
-    
+            except:
+                continue
+
     # AI & Weather Data
     weather = get_live_weather(lat=lat, lng=lng)
     is_weekend = now.weekday() >= 5
     load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
-    
+
     # Optimized Global GTFS Stats (Trips active right now)
     trip_times = {}
     for row in trips:
@@ -418,29 +451,31 @@ def api_nearest():
 
     # Sort upcoming by original string comparison (before I:M p conversion)
     upcoming.sort(key=lambda x: x['arrival_time'])
-    
+
     # Use 12-hour format for upcoming trains
     for t in upcoming:
         try:
             h, m, s = map(int, t['arrival_time'].split(':'))
             dt = now.replace(hour=h, minute=m, second=s)
             t['arrival_time'] = dt.strftime('%I:%M %p')
-        except: pass
-    
+        except:
+            pass
+
     # Sort upcoming by original string comparison (before I:M p conversion) or keep it consistent
-    
+
     return jsonify({
-        'station': nearest, 
+        'station': nearest,
         'distance': round(dist, 2),
         'walk_dist': round(walk_dist, 2),
         'walking_mins': walking_mins,
-        'upcoming': upcoming, 
-        'load_val': load_val, 
+        'upcoming': upcoming,
+        'load_val': load_val,
         'load_label': load_label,
         'active_trips': active_count,
         'weather': weather,
         'greeting': "Good Morning" if 5 <= now.hour < 12 else "Good Afternoon" if 12 <= now.hour < 17 else "Good Evening"
     })
+
 
 @app.route('/api/weather', methods=['POST'])
 def api_weather():
@@ -449,12 +484,13 @@ def api_weather():
     weather = get_live_weather(lat=lat, lng=lng)
     return jsonify(weather)
 
+
 @app.route('/api/plan', methods=['POST'])
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
     now = get_app_now()
-    
+
     # BFS find path
     queue = [(start_id, [start_id])]
     visited = {start_id}
@@ -471,8 +507,8 @@ def api_plan():
             for line in CONNECTIONS.values():
                 if curr in line:
                     idx = line.index(curr)
-                    if idx > 0: neighbors.append(line[idx-1])
-                    if idx < len(line)-1: neighbors.append(line[idx+1])
+                    if idx > 0: neighbors.append(line[idx - 1])
+                    if idx < len(line) - 1: neighbors.append(line[idx + 1])
             c_name = next((s['name'] for s in STATIONS_LIST if s['id'] == curr), None)
             if c_name:
                 for s in STATIONS_LIST:
@@ -481,34 +517,34 @@ def api_plan():
                 if n not in visited:
                     visited.add(n)
                     queue.append((n, p + [n]))
-    
+
     sequence = [next(s for s in STATIONS_LIST if s['id'] == sid) for sid in path]
     duration = max(2, len(sequence) * 2) if sequence else 0
     total_stops = len(sequence) - 1 if len(sequence) > 1 else max(0, len(sequence))
-    
+
     # Synchronize Arrival Time with GTFS schedule
     ensure_gtfs()
     gtfs_arrival_time = None
     gtfs_boarding_time = None
     chosen_trip_id = None
-    
+
     # Track arrival time for every stop in the journey
-    stop_arrival_times = {} 
-    
+    stop_arrival_times = {}
+
     try:
         now_str = now.strftime('%H:%M:%S')
         with open(GTFS_FILE, 'r') as f:
             reader = csv.DictReader(f)
             trips = list(reader)
-        
+
         # Find the next available trip at start station
         start_id = sequence[0]['id']
         end_id = sequence[-1]['id'] if sequence else None
-        
+
         possible_trips = [t for t in trips if t['station_id'] == start_id and t['arrival_time'] > now_str]
         possible_trips.sort(key=lambda x: x['arrival_time'])
-        
-        for pt in possible_trips[:5]: # Check first 5 upcoming
+
+        for pt in possible_trips[:5]:  # Check first 5 upcoming
             trip_data = [t for t in trips if t['trip_id'] == pt['trip_id']]
             # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -518,7 +554,7 @@ def api_plan():
                     gtfs_arrival_time = destination_stop['arrival_time']
                     gtfs_boarding_time = pt['arrival_time']
                     chosen_trip_id = pt['trip_id']
-                    
+
                     # Map all stop times for this trip
                     for td in trip_data:
                         stop_arrival_times[td['station_id']] = td['arrival_time']
@@ -533,7 +569,8 @@ def api_plan():
             try:
                 h, m, s_ = map(int, s['reaching_at_raw'].split(':'))
                 s['reaching_at'] = now.replace(hour=h, minute=m, second=s_).strftime('%I:%M %p')
-            except: s['reaching_at'] = s['reaching_at_raw']
+            except:
+                s['reaching_at'] = s['reaching_at_raw']
         else:
             s['reaching_at'] = "--:--"
 
@@ -541,9 +578,9 @@ def api_plan():
     total_km = 0
     for i in range(len(sequence) - 1):
         s1 = sequence[i]
-        s2 = sequence[i+1]
+        s2 = sequence[i + 1]
         total_km += haversine(s1['lat'], s1['lng'], s2['lat'], s2['lng'])
-    
+
     # Official Fare Logic from Image
     def get_fare_from_matrix(dist):
         if dist <= 2: return 11
@@ -558,7 +595,7 @@ def api_plan():
         return 69
 
     calculated_fare = get_fare_from_matrix(total_km)
-    
+
     # Calculate more accurate duration using GTFS if available
     if gtfs_boarding_time and gtfs_arrival_time:
         try:
@@ -571,24 +608,25 @@ def api_plan():
             duration = len(sequence) * 2
     else:
         duration = len(sequence) * 2
-    
+
     weather = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
     weather_advice = " AC cooling optimized for intense heat." if weather.get('temp', 30) > 35 else \
-                     " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
-                     " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get('condition', '') else ""
+        " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
+            " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get(
+                'condition', '') else ""
 
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
     end_station_name = sequence[-1]['name']
     is_weekend = now.weekday() >= 5
     load_val, base_load_label = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
-    
+
     # NEW: Numerical Load and Peak Intensity Math
-    load_pct = 35 # Base
+    load_pct = 35  # Base
     if (7 <= now.hour <= 10 or 17 <= now.hour <= 21): load_pct += 45
     if start_station_name in ['Hitech City', 'Madhapur', 'Raidurg']: load_pct += 15
     load_pct = min(99.4, load_pct + random.uniform(-3, 3))
-    
+
     peak_intensity = 0
     if (7 <= now.hour <= 10):
         dist = abs(now.hour - 8.5)
@@ -600,11 +638,11 @@ def api_plan():
 
     # Base recommendation
     recommendation = (
-        "Optimal conditions. Low crowd density detected." if load_val == "Low" else \
-        "Fair volume. Seat likely available for your journey." if load_val == "Medium" else \
-        "Moderate volume. Manageable rush." if load_val == "M-High" else \
-        "Peak congestion. AI suggests waiting for dip."
-    ) + weather_advice
+                         "Optimal conditions. Low crowd density detected." if load_val == "Low" else \
+                             "Fair volume. Seat likely available for your journey." if load_val == "Medium" else \
+                                 "Moderate volume. Manageable rush." if load_val == "M-High" else \
+                                     "Peak congestion. AI suggests waiting for dip."
+                     ) + weather_advice
 
     # Neural Path Logic: Use Gemini
     if ai_client:
@@ -614,7 +652,8 @@ def api_plan():
             ai_rec = get_ai_insight(ai_prompt)
             if ai_rec:
                 recommendation = f"{base_load_label}. {ai_rec}"
-        except: pass
+        except:
+            pass
 
     # INTERCHANGE & GUIDE LOGIC
     guides = []
@@ -622,33 +661,34 @@ def api_plan():
 
     for i in range(len(path) - 1):
         s1 = next(s for s in STATIONS_LIST if s['id'] == path[i])
-        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i+1])
+        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i + 1])
         name1 = s1.get('name_alias', s1['name'])
         name2 = s2.get('name_alias', s2['name'])
-        
+
         if name1 == name2 and s1['id'] != s2['id']:
-            next_sid = path[i+2] if i+2 < len(path) else None
+            next_sid = path[i + 2] if i + 2 < len(path) else None
             platform = "?"
             guide = f"Transfer at {name1}"
-            
+
             # Connection Analytics
             reaching_at_raw = reaching_times_map.get(s1['id'])
             connecting_trains = []
             reaching_at_display = "--:--"
-            
+
             if reaching_at_raw:
                 try:
                     rh, rm, rs = map(int, reaching_at_raw.split(':'))
                     reach_dt = now.replace(hour=rh, minute=rm, second=rs, microsecond=0)
                     reaching_at_display = reach_dt.strftime('%I:%M %p')
-                    
+
                     # Next 1 hour from reaching
                     reach_plus_hour = reach_dt + timedelta(hours=1)
                     rph_str = reach_plus_hour.strftime('%H:%M:%S')
-                    
+
                     # Find other lines at this station
-                    other_ids = [s['id'] for s in STATIONS_LIST if (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
-                    
+                    other_ids = [s['id'] for s in STATIONS_LIST if
+                                 (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
+
                     for row in trips:
                         if row['station_id'] in other_ids and reaching_at_raw < row['arrival_time'] < rph_str:
                             t_copy = row.copy()
@@ -658,57 +698,65 @@ def api_plan():
                             t_copy['wait_mins'] = int((t_dt - reach_dt).total_seconds() // 60)
                             connecting_trains.append(t_copy)
                             if len(connecting_trains) >= 3: break
-                except: pass
+                except:
+                    pass
 
             if next_sid:
                 next_s = next(s for s in STATIONS_LIST if s['id'] == next_sid)
                 if name1 == 'Ameerpet':
                     if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R',''))
+                        idx = int(next_s['id'].replace('R', ''))
                         platform = "1 (Towards LB Nagar)" if idx > 11 else "2 (Towards Miyapur)"
-                        if s1['line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
+                        if s1[
+                            'line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
                     elif next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B',''))
+                        idx = int(next_s['id'].replace('B', ''))
                         platform = "3 (Towards Nagole)" if idx > 8 else "4 (Towards Raidurg)"
-                        if s1['line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
+                        if s1[
+                            'line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
                 elif name1 == 'MGBS':
                     if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R',''))
+                        idx = int(next_s['id'].replace('R', ''))
                         platform = "1 (Towards LB Nagar)" if idx > 20 else "2 (Towards Miyapur)"
-                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
+                        if s1[
+                            'line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
                     elif next_s['line'] == 'Green':
                         platform = "3 (Towards JBS Parade Grounds)"
-                        if s1['line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
+                        if s1[
+                            'line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
                 elif name1 == 'Parade Ground':
                     if next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B',''))
+                        idx = int(next_s['id'].replace('B', ''))
                         platform = "3 (Towards Nagole)" if idx > 13 else "4 (Towards Raidurg)"
-                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
+                        if s1[
+                            'line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
                     elif next_s['line'] == 'Green':
-                        idx = int(next_s['id'].replace('G',''))
+                        idx = int(next_s['id'].replace('G', ''))
                         platform = "1 (Towards MGBS)" if idx > 3 else "2 (Towards JBS Parade Grounds)"
-                        if s1['line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
-            
+                        if s1[
+                            'line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
+
             guides.append({
-                'station': name1, 
-                'platform': platform, 
-                'text': guide, 
+                'station': name1,
+                'platform': platform,
+                'text': guide,
                 'reaching_at': reaching_at_display,
                 'connections': connecting_trains
             })
 
     # PROJECTION METRICS
     is_peak_val = "Peak Hour" if (7 <= now.hour <= 10 or 17 <= now.hour <= 21) else "Off-Peak"
-    is_it_hub_val = "High" if any(n in [s['name'] for s in sequence] for n in ['Hitech City', 'Raidurg', 'Madhapur']) else "Normal"
-    
+    is_it_hub_val = "High" if any(
+        n in [s['name'] for s in sequence] for n in ['Hitech City', 'Raidurg', 'Madhapur']) else "Normal"
+
     # Environmental Analytics
-    co2_saved = round(total_km * 0.12, 2) # kg CO2
-    calories = int(total_km * 12 + len(guides) * 25) # Estimated effort
+    co2_saved = round(total_km * 0.12, 2)  # kg CO2
+    calories = int(total_km * 12 + len(guides) * 25)  # Estimated effort
     trees_saved = round(total_km * 0.05, 3)
     one_hour_later = now + timedelta(hours=1)
     now_str = now.strftime('%H:%M:%S')
     oh_str = one_hour_later.strftime('%H:%M:%S')
-    
+
     upcoming_hour = []
     for row in trips:
         if row['station_id'] == start_id and now_str < row['arrival_time'] < oh_str:
@@ -718,7 +766,7 @@ def api_plan():
                 arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                 diff = (arrival_dt - now).total_seconds()
                 row_copy['eta'] = f"{int(diff // 60):02d}:{int(diff % 60):02d}"
-                
+
                 # Calculate estimated reach time for this specific trip
                 trip_data = [t for t in trips if t['trip_id'] == row['trip_id']]
                 dest_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -731,7 +779,8 @@ def api_plan():
                     row_copy['est_reach'] = (arrival_dt + timedelta(minutes=duration)).strftime('%I:%M %p')
 
                 upcoming_hour.append(row_copy)
-            except: continue
+            except:
+                continue
             if len(upcoming_hour) >= 8: break
 
     # Convert boarding & arrival to 12-hour format
@@ -757,7 +806,8 @@ def api_plan():
         try:
             h, m, s = map(int, u['arrival_time'].split(':'))
             u['arrival_time'] = now.replace(hour=h, minute=m, second=s).strftime('%I:%M %p')
-        except: pass
+        except:
+            pass
 
     return jsonify({
         'sequence': sequence,
@@ -784,14 +834,15 @@ def api_plan():
         }
     })
 
+
 @app.route('/api/live-map')
 def api_live_map():
     trips = ensure_gtfs()
     now_dt = get_app_now()
     now_str = now_dt.strftime('%H:%M:%S')
-    
+
     active_trains = []
-    
+
     # Read trips and group by trip_id
     trips_by_id = {}
     for row in trips:
@@ -799,28 +850,28 @@ def api_live_map():
         if tid not in trips_by_id:
             trips_by_id[tid] = []
         trips_by_id[tid].append(row)
-    
+
     for tid, stops in trips_by_id.items():
         # Sort stops by arrival time
         stops.sort(key=lambda x: x['arrival_time'])
-        
+
         # Find if train is currently between two stops
         for i in range(len(stops) - 1):
             s1 = stops[i]
-            s2 = stops[i+1]
-            
+            s2 = stops[i + 1]
+
             if s1['arrival_time'] <= now_str < s2['arrival_time']:
                 # Calculate progress
                 try:
                     t1_parts = list(map(int, s1['arrival_time'].split(':')))
                     t2_parts = list(map(int, s2['arrival_time'].split(':')))
-                    
+
                     t1 = now_dt.replace(hour=t1_parts[0], minute=t1_parts[1], second=t1_parts[2])
                     t2 = now_dt.replace(hour=t2_parts[0], minute=t2_parts[1], second=t2_parts[2])
-                    
+
                     total_duration = (t2 - t1).total_seconds()
                     elapsed = (now_dt - t1).total_seconds()
-                    
+
                     progress = max(0, min(1, elapsed / total_duration))
 
                     # Calculate speed
@@ -830,7 +881,7 @@ def api_live_map():
                     if st1 and st2 and total_duration > 0:
                         dist = haversine(st1['lat'], st1['lng'], st2['lat'], st2['lng'])
                         speed = (dist / (total_duration / 3600.0))
-                    
+
                     active_trains.append({
                         'trip_id': tid,
                         'line': s1['line'],
@@ -843,11 +894,12 @@ def api_live_map():
                         'final_stop': s1['final_stop'],
                         'speed': round(speed, 1) if speed < 110 else 75
                     })
-                    break # Only one segment per trip
+                    break  # Only one segment per trip
                 except:
                     continue
-                    
+
     return jsonify({'trains': active_trains})
+
 
 # ==========================================
 # 5. UI TEMPLATE (UPGRADED)
@@ -865,7 +917,7 @@ HTML_TEMPLATE = """
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-        
+
         :root {
             --bg: #fdfdff;
             --card-bg: rgba(255, 255, 255, 0.85);
@@ -907,9 +959,9 @@ HTML_TEMPLATE = """
             padding: 2px 24px 140px 24px; 
             min-height: 100vh; 
         }
-        
+
         .sidebar-toggle { display: none !important; }
-        
+
         @media (max-width: 1024px) {
             .main { 
                 padding: 10px; 
@@ -1204,6 +1256,22 @@ HTML_TEMPLATE = """
             100% { transform: translate3d(-100%, 0, 0); }
         }
 
+        .dir-line-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: #64748b;
+        }
+        .dir-line-btn.active {
+            background: white !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            color: inherit !important;
+            border-color: #e2e8f0;
+        }
+
+        #stations-grid .glass-card {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
         /* Suppress Google Maps Dev Warnings */
         .gm-style-cc, .gm-err-container, .gm-err-content, .gm-err-icon, .gm-err-title, a[href^="http://maps.google.com/maps"], .gm-style-pbc, .gmnoprint, .gm-bundle-control { display: none !important; }
         .gm-style div[style*="z-index: 1000001"] { display: none !important; }
@@ -1241,10 +1309,10 @@ HTML_TEMPLATE = """
 
     <div class="mobile-nav">
         <div onclick="showTab('home')" class="mobile-link active" id="mob-home"><i data-lucide="home"></i><span>Home</span></div>
+        <div onclick="showTab('stations')" class="mobile-link" id="mob-stations"><i data-lucide="layout-grid"></i><span>Stations</span></div>
         <div onclick="showTab('map')" class="mobile-link" id="mob-map"><i data-lucide="map-pinned"></i><span>Map</span></div>
-        <div onclick="showTab('tickets')" class="mobile-link" id="mob-tickets"><i data-lucide="qr-code"></i><span>Tickets</span></div>
         <div onclick="showTab('routes')" class="mobile-link" id="mob-routes"><i data-lucide="route"></i><span>Planner</span></div>
-        <div onclick="showTab('feedback')" class="mobile-link" id="mob-feedback"><i data-lucide="heart"></i><span>Feed</span></div>
+        <div onclick="showTab('tickets')" class="mobile-link" id="mob-tickets"><i data-lucide="qr-code"></i><span>Tickets</span></div>
     </div>
 
     <div class="main" id="main-content">
@@ -1280,7 +1348,7 @@ HTML_TEMPLATE = """
                                 <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
                                 <span class="text-[9px] font-black uppercase tracking-[0.3em] text-blue-400">Satellite Stream Active</span>
                             </div>
-                            
+
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12 items-end">
                                 <div>
                                     <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Your Zone</h4>
@@ -1301,7 +1369,7 @@ HTML_TEMPLATE = """
                 <div class="lg:col-span-4">
                     <div class="glass-card h-full border-none bg-white p-8 relative overflow-hidden shadow-2xl shadow-slate-200/40 group">
                         <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100"></div>
-                        
+
                         <div class="relative z-10 h-full flex flex-col">
                             <div class="flex justify-between items-start mb-8">
                                 <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Nearest Metro Node</h4>
@@ -1490,7 +1558,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <div class="glass-card p-0 relative h-[800px] overflow-hidden bg-slate-50 border-none shadow-2xl">
+            <div class="glass-card p-0 relative h-[600px] lg:h-[800px] overflow-hidden bg-slate-50 border-none shadow-2xl">
                 <div id="map-legend" class="absolute bottom-24 left-6 glass-card p-6 border-none shadow-2xl bg-white/95 backdrop-blur-xl hidden lg:block z-50">
                     <h5 class="text-[10px] font-black uppercase tracking-[0.2em] mb-4 text-slate-400">Map Legend</h5>
                     <div class="space-y-3">
@@ -1511,16 +1579,16 @@ HTML_TEMPLATE = """
                         <svg id="metro-svg" viewBox="0 0 2400 1600" class="w-full h-full text-white">
                             <!-- Background layer -->
                             <rect width="2400" height="1600" fill="transparent" />
-                            
+
                             <!-- Landmarks layer -->
                             <g id="svg-landmarks"></g>
 
                             <!-- Lines layer -->
                             <g id="svg-lines"></g>
-                            
+
                             <!-- Stations layer -->
                             <g id="svg-stations"></g>
-                            
+
                             <!-- Trains layer -->
                             <g id="svg-trains"></g>
                         </svg>
@@ -1574,7 +1642,7 @@ HTML_TEMPLATE = """
                                 </h5>
                                 <div id="ov-amenities" class="grid grid-cols-2 gap-3"></div>
                             </div>
-                            
+
                             <!-- Real-time Departures Section -->
                             <div>
                                 <h5 class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-6 flex items-center gap-2">
@@ -1603,10 +1671,10 @@ HTML_TEMPLATE = """
                    <h2 class="text-4xl lg:text-5xl font-black tracking-tighter mb-1 text-slate-900">Neural Path Architect</h2>
                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] flex items-center justify-center gap-2"><i data-lucide="shield-check" size="14" class="text-emerald-500"></i> Optimized Network Synchrony</p>
                 </div>
-                
+
                 <div id="planner-input-area" class="glass-card border-none shadow-2xl bg-white p-8 lg:p-12 relative overflow-hidden group mb-8">
                     <div class="absolute -right-20 -top-20 w-96 h-96 bg-blue-50/50 rounded-full blur-[100px] transition-all group-hover:bg-blue-100/30"></div>
-                    
+
                     <div class="grid grid-cols-1 md:grid-cols-11 gap-4 items-end relative z-10">
                         <div class="md:col-span-5 space-y-3">
                             <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">Source Node</label>
@@ -1800,7 +1868,7 @@ HTML_TEMPLATE = """
                             <i data-lucide="zap" class="text-blue-600" size="14"></i> Active Boarding Pass
                         </h4>
                     </div>
-                    
+
                     <div id="active-ticket-container" class="perspective-1000">
                         <!-- Active ticket injected here -->
                         <div class="glass-card border-dashed border-2 flex flex-col items-center justify-center py-32 text-slate-300">
@@ -1826,6 +1894,32 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- STATIONS DIRECTORY -->
+        <div id="tab-stations" class="tab-content">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
+                <div class="text-center lg:text-left">
+                   <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900 italic uppercase">Network Directory</h2>
+                   <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Explore all nodes and available facilities</p>
+                </div>
+                <div class="flex flex-col sm:flex-row items-center gap-4">
+                    <div class="relative w-full sm:w-64">
+                         <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size="14"></i>
+                         <input type="text" id="dir-search" oninput="renderStationsDirectory()" placeholder="Search stations..." class="w-full pl-12 pr-4 py-3 bg-slate-100 border-none rounded-2xl outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-sm">
+                    </div>
+                    <div class="flex shrink-0 gap-1 bg-slate-100 p-1.5 rounded-[24px]">
+                        <button id="dir-filter-All" onclick="filterDirByLine('All')" class="dir-line-btn active px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all">All</button>
+                        <button id="dir-filter-Red" onclick="filterDirByLine('Red')" class="dir-line-btn px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-white text-red-500">Red</button>
+                        <button id="dir-filter-Blue" onclick="filterDirByLine('Blue')" class="dir-line-btn px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-white text-blue-500">Blue</button>
+                        <button id="dir-filter-Green" onclick="filterDirByLine('Green')" class="dir-line-btn px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-white text-green-500">Green</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="stations-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <!-- Stations cards injected here -->
+            </div>
+        </div>
+
         <div id="tab-feedback" class="tab-content">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-6 border-b pb-4 border-slate-200">
                 <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
@@ -1841,9 +1935,9 @@ HTML_TEMPLATE = """
                 <div class="lg:col-span-5">
                     <div class="glass-card border-none shadow-2xl bg-white p-10 relative overflow-hidden group">
                         <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100/50"></div>
-                        
+
                         <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-10 relative z-10">Neural Input Form</h4>
-                        
+
                         <div class="space-y-8 relative z-10">
                             <div class="space-y-3">
                                 <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sentiment Rating</label>
@@ -1946,14 +2040,14 @@ HTML_TEMPLATE = """
                 const coords = project(l.lat, l.lng);
                 const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 g.setAttribute("class", "landmark-node");
-                
+
                 const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
                 circle.setAttribute("cx", coords.x);
                 circle.setAttribute("cy", coords.y);
                 circle.setAttribute("r", "5");
                 circle.setAttribute("fill", "#64748b");
                 circle.setAttribute("opacity", "0.4");
-                
+
                 const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
                 text.setAttribute("x", coords.x + 8);
                 text.setAttribute("y", coords.y + 4);
@@ -1963,7 +2057,7 @@ HTML_TEMPLATE = """
                 text.setAttribute("fill", "#94a3b8");
                 text.setAttribute("style", "text-transform: uppercase; letter-spacing: 0.1em; pointer-events: none;");
                 text.textContent = l.name;
-                
+
                 g.appendChild(circle);
                 g.appendChild(text);
                 landmarksG.appendChild(g);
@@ -2002,23 +2096,24 @@ HTML_TEMPLATE = """
             // 2. Add Metro Stations
             stations.forEach((s, idx) => {
                 const color = s.line === 'Red' ? '#ef4444' : s.line === 'Blue' ? '#3b82f6' : '#22c55e';
-                
+
                 const g = document.createElementNS(\"http://www.w3.org/2000/svg\", \"g\");
                 g.setAttribute(\"class\", \"station-node group\");
                 g.setAttribute(\"id\", `node-${s.id}`);
-                
-                const isInterchange = ['Ameerpet', 'MG Bus Station', 'Parade Ground'].includes(s.name);
 
-                const circle = document.createElementNS(\"http://www.w3.org/2000/svg\", \"circle\");
-                circle.setAttribute(\"cx\", s.x);
-                circle.setAttribute(\"cy\", s.y);
-                circle.setAttribute(\"r\", isInterchange ? 14 : 9);
-                circle.setAttribute(\"stroke\", color);
-                circle.setAttribute(\"fill\", \"#0c1221\");
-                circle.setAttribute(\"stroke-width\", \"5\");
+                const isInterchange = ['Ameerpet', 'MG Bus Station', 'Parade Ground'].includes(s.name);
+                if (isInterchange) g.classList.add('interchange');
+
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", s.x);
+                circle.setAttribute("cy", s.y);
+                circle.setAttribute("r", isInterchange ? 14 : 9);
+                circle.setAttribute("stroke", color);
+                circle.setAttribute("fill", "white");
+                circle.setAttribute("stroke-width", "5");
 
                 const text = document.createElementNS(\"http://www.w3.org/2000/svg\", \"text\");
-                
+
                 // Directional Labeling Logic based on the uploaded schematic image
                 let xOff = 25;
                 let yOff = 0;
@@ -2085,12 +2180,12 @@ HTML_TEMPLATE = """
                     const dist = Math.sqrt(xOff * xOff + yOff * yOff);
                     const nx = xOff / dist;
                     const ny = yOff / dist;
-                    
+
                     // Start outside the node
                     const r = isInterchange ? 18 : 12;
                     const x1 = s.x + nx * r;
                     const y1 = s.y + ny * r;
-                    
+
                     // End before the text
                     const x2 = s.x + xOff - nx * 10;
                     const y2 = s.y + yOff - ny * 2; // Slight vertical adjust for readability
@@ -2117,9 +2212,9 @@ HTML_TEMPLATE = """
 
                 g.appendChild(circle);
                 g.appendChild(text);
-                
+
                 g.onclick = () => handleStationInteraction(s);
-                
+
                 // Hover Tooltip logic
                 g.onmouseenter = (e) => {
                     tooltip.style.display = 'block';
@@ -2168,19 +2263,44 @@ HTML_TEMPLATE = """
             }, { passive: false });
 
             // Fit all stations to screen initially
-            resetMap();
+            setTimeout(resetMap, 100);
+            setTimeout(resetMap, 1000); // Reliable second pass
+
+            // Handle responsiveness and layout changes
+            const resizeObserver = new ResizeObserver(() => {
+                if (document.getElementById('tab-map').classList.contains('active')) {
+                    resetMap();
+                }
+            });
+            resizeObserver.observe(viewport);
         }
 
         function updateMapTransform() {
             const container = document.getElementById('schematic-container');
             container.style.transform = `translate(${schematicPan.x}px, ${schematicPan.y}px) scale(${schematicZoom})`;
-            
+
             // Dynamic Label Scaling: keep labels legible. 
-            // As we zoom in (schematicZoom increases), the labels stay a comfortable screen size.
-            // When zoomed out, we cap their size so they don't cover each other.
-            const baseSize = 14;
-            const targetSize = Math.max(8, baseSize / Math.sqrt(schematicZoom));
+            // We want the labels to be approximately 10-12px on screen regardless of zoom.
+            // Screen Size = SVG Size * schematicZoom -> SVG Size = Screen Size / schematicZoom
+            const targetScreenSize = 11;
+            const targetSize = Math.max(8, targetScreenSize / schematicZoom);
             document.documentElement.style.setProperty('--map-label-size', `${targetSize}px`);
+
+            // Also scale the markers slightly so they don't disappear
+            const markerBaseSize = 9;
+            const targetMarkerSize = Math.max(markerBaseSize, 4 / schematicZoom);
+            document.querySelectorAll('.station-node circle').forEach(c => {
+                c.setAttribute('r', targetMarkerSize);
+            });
+            document.querySelectorAll('.station-node.interchange circle').forEach(c => {
+                c.setAttribute('r', targetMarkerSize * 1.5);
+            });
+
+            // Scale leader lines
+            document.querySelectorAll('.station-node line').forEach(l => {
+                l.setAttribute('stroke-width', Math.max(0.5, 1.5 / schematicZoom));
+                l.setAttribute('opacity', Math.min(0.8, 0.4 / Math.sqrt(schematicZoom)));
+            });
         }
 
         function panMap(dx, dy) {
@@ -2192,7 +2312,7 @@ HTML_TEMPLATE = """
         function zoomMap(factor, centerX, centerY) {
             const viewport = document.getElementById('schematic-viewport');
             const rect = viewport.getBoundingClientRect();
-            
+
             // Calculate center relative to viewport
             const x = (centerX !== undefined) ? centerX - rect.left : viewport.clientWidth / 2;
             const y = (centerY !== undefined) ? centerY - rect.top : viewport.clientHeight / 2;
@@ -2202,36 +2322,51 @@ HTML_TEMPLATE = """
             const mapY = (y - schematicPan.y) / schematicZoom;
 
             let newZoom = schematicZoom * factor;
-            
+
             // Limit zoom
             newZoom = Math.max(0.1, Math.min(6, newZoom));
-            
+
             // Adjust pan to keep point under cursor
             schematicPan.x = x - mapX * newZoom;
             schematicPan.y = y - mapY * newZoom;
             schematicZoom = newZoom;
-            
+
             updateMapTransform();
         }
 
         function resetMap() {
             const viewport = document.getElementById('schematic-viewport');
-            const xCoords = stations.map(s => s.x);
-            const yCoords = stations.map(s => s.y);
+            if (!viewport) return;
+
+            // Ensure stations have projection coordinates
+            if (stations.some(s => s.x === undefined)) {
+                console.log("Stations not yet projected, skipping resetMap");
+                return;
+            }
+
+            const xCoords = stations.map(s => s.x).filter(x => x !== undefined);
+            const yCoords = stations.map(s => s.y).filter(y => y !== undefined);
+
+            if (xCoords.length === 0) return;
+
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
             const minY = Math.min(...yCoords);
             const maxY = Math.max(...yCoords);
-            
-            const padding_px = 120; // More padding for safety
+
+            const isMobile = window.innerWidth < 768;
+            const padding_px = isMobile ? 40 : 120; 
             const stationsWidth = maxX - minX;
             const stationsHeight = maxY - minY;
 
             if (stationsWidth > 0 && stationsHeight > 0 && viewport.clientWidth > 0) {
                 const zoomW = (viewport.clientWidth - 2 * padding_px) / stationsWidth;
                 const zoomH = (viewport.clientHeight - 2 * padding_px) / stationsHeight;
-                schematicZoom = Math.max(0.1, Math.min(zoomW, zoomH, 1.2));
-                
+
+                // On mobile, we allow it to zoom out more to fit everything
+                const minZoom = isMobile ? 0.05 : 0.1;
+                schematicZoom = Math.max(minZoom, Math.min(zoomW, zoomH, 1.2));
+
                 schematicPan.x = (viewport.clientWidth / 2) - ((minX + maxX) / 2 * schematicZoom);
                 schematicPan.y = (viewport.clientHeight / 2) - ((minY + maxY) / 2 * schematicZoom);
             }
@@ -2251,14 +2386,14 @@ HTML_TEMPLATE = """
         async function handleTrainInteraction(t, nextStop) {
             const overlay = document.getElementById('map-overlay');
             overlay.classList.add('active');
-            
+
             document.getElementById('ov-name').innerText = `Train ${t.trip_id}`;
             document.getElementById('ov-weather').classList.add('hidden');
-            
+
             const ovLine = document.getElementById('ov-line');
             ovLine.innerText = t.line + ' LINE';
             ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (t.line === 'Red' ? 'bg-red-50 text-red-600' : t.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
-            
+
             const oldBtn = document.getElementById('ov-inter-btn');
             if (oldBtn) oldBtn.remove();
 
@@ -2286,12 +2421,12 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             `;
-            
+
             const trainsEl = document.getElementById('ov-trains');
             trainsEl.innerHTML = '<p class="text-[10px] font-bold text-slate-400 italic">Tracking current unit metrics...</p>';
-            
+
             lucide.createIcons();
-            
+
             // Re-center on train position (estimated)
             const s1 = stations.find(s => s.id === t.from_id);
             const s2 = stations.find(s => s.id === t.to_id);
@@ -2301,7 +2436,7 @@ HTML_TEMPLATE = """
                 progress = Math.max(0, Math.min(1, progress));
                 const curX = s1.x + (s2.x - s1.x) * progress;
                 const curY = s1.y + (s2.y - s1.y) * progress;
-                
+
                 const viewport = document.getElementById('schematic-viewport');
                 schematicPan.x = (viewport.clientWidth / 2.5) - (curX * schematicZoom);
                 schematicPan.y = (viewport.clientHeight / 2) - (curY * schematicZoom);
@@ -2314,14 +2449,14 @@ HTML_TEMPLATE = """
         async function handleStationInteraction(s) {
             const overlay = document.getElementById('map-overlay');
             overlay.classList.add('active');
-            
+
             document.getElementById('ov-name').innerText = s.name;
             document.getElementById('ov-weather').classList.add('hidden');
-            
+
             const ovLine = document.getElementById('ov-line');
             ovLine.innerText = s.line + ' LINE';
             ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (s.line === 'Red' ? 'bg-red-50 text-red-600' : s.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
-            
+
             // Re-center on schematic
             const viewport = document.getElementById('schematic-viewport');
             schematicPan.x = (viewport.clientWidth / 2.5) - (s.x * schematicZoom);
@@ -2354,10 +2489,10 @@ HTML_TEMPLATE = """
                 wEl.classList.remove('hidden');
                 lucide.createIcons();
             } catch (e) { console.warn("Station weather fetch failed"); }
-            
+
             const am = document.getElementById('ov-amenities'); am.innerHTML = '';
             const amenities = s.amenities || ['Express Check-in', 'Tactile Pathing', 'HD Surveillance', 'Emergency Ops Center'];
-            
+
             amenities.forEach(a => {
                 const dev = document.createElement('div'); 
                 dev.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:border-blue-200 group';
@@ -2384,7 +2519,7 @@ HTML_TEMPLATE = """
 
             const trainCont = document.getElementById('ov-trains');
             trainCont.innerHTML = `<div class="py-10 flex flex-col items-center gap-4 text-slate-300"><div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p class="text-[9px] font-black uppercase tracking-widest">Syncing Flux...</p></div>`;
-            
+
             try {
                 const res = await fetch('/api/nearest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ station_id: s.id }) });
                 const data = await res.json();
@@ -2425,7 +2560,7 @@ HTML_TEMPLATE = """
 
             const trainsG = document.getElementById('svg-trains');
             const now = Date.now();
-            
+
             trainStates.forEach((t, tid) => {
                 const s1 = stations.find(s => s.id === t.from_id);
                 const s2 = stations.find(s => s.id === t.to_id);
@@ -2437,7 +2572,7 @@ HTML_TEMPLATE = """
 
                 const curX = s1.x + (s2.x - s1.x) * progress;
                 const curY = s1.y + (s2.y - s1.y) * progress;
-                
+
                 let trainEl = document.getElementById(`train-${tid}`);
                 if (!trainEl) {
                     trainEl = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -2447,7 +2582,7 @@ HTML_TEMPLATE = """
                         e.stopPropagation();
                         handleTrainInteraction(t, s2);
                     };
-                    
+
                     trainEl.onmouseenter = (e) => {
                         const tooltip = document.getElementById('station-tooltip');
                         tooltip.style.display = 'block';
@@ -2473,9 +2608,9 @@ HTML_TEMPLATE = """
                     trainEl.onmouseleave = () => {
                         document.getElementById('station-tooltip').style.display = 'none';
                     };
-                    
+
                     const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#22c55e';
-                    
+
                     // Train Body (Modern Pod Shape)
                     const outer = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                     outer.setAttribute("x", "-20");
@@ -2486,7 +2621,7 @@ HTML_TEMPLATE = """
                     outer.setAttribute("fill", "#0f172a");
                     outer.setAttribute("stroke", color);
                     outer.setAttribute("stroke-width", "3");
-                    
+
                     // Windows
                     for (let i = -12; i <= 4; i += 8) {
                         const win = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -2516,7 +2651,7 @@ HTML_TEMPLATE = """
                 const dx = s2.x - s1.x;
                 const dy = s2.y - s1.y;
                 const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                
+
                 // Adjust scale based on zoom so trains remain visible but don't overwhelm
                 const scale = Math.max(0.4, Math.min(1.2, 1 / Math.sqrt(schematicZoom)));
                 trainEl.setAttribute("transform", `translate(${curX}, ${curY}) rotate(${angle}) scale(${scale})`);
@@ -2551,7 +2686,7 @@ HTML_TEMPLATE = """
                 const data = await res.json();
                 document.getElementById('weather-val').innerText = data.temp + '°C, ' + data.condition;
                 document.getElementById('weather-detail').innerText = `Humidity: ${data.humidity}% | Visibility: ${data.visibility.toFixed(1)}km`;
-                
+
                 const weatherRec = data.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
                                    data.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
                                    "Neural processing active. Enjoy your commute across the network.";
@@ -2564,9 +2699,9 @@ HTML_TEMPLATE = """
             const saved = JSON.parse(localStorage.getItem('metro_saved_vectors') || '[]');
             const container = document.getElementById('fav-vectors-list');
             const section = document.getElementById('fav-vectors-section');
-            
+
             if (!container) return;
-            
+
             if (saved.length > 0) {
                 section.classList.remove('hidden');
                 container.innerHTML = '';
@@ -2579,7 +2714,7 @@ HTML_TEMPLATE = """
                         showTab('routes');
                         planJourney();
                     };
-                    
+
                     card.innerHTML = `
                         <div class="flex items-center gap-5">
                             <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
@@ -2604,11 +2739,11 @@ HTML_TEMPLATE = """
 
         function saveCurrentVector() {
             if (!currentPlannedRoute) return;
-            
+
             const saved = JSON.parse(localStorage.getItem('metro_saved_vectors') || '[]');
             const startId = document.getElementById('start-st').value;
             const endId = document.getElementById('end-st').value;
-            
+
             if (saved.some(v => v.from === startId && v.to === endId)) {
                 alert("Vector already synced to local matrix.");
                 return;
@@ -2633,17 +2768,17 @@ HTML_TEMPLATE = """
 
             saved.push(vector);
             localStorage.setItem('metro_saved_vectors', JSON.stringify(saved));
-            
+
             const btn = document.getElementById('save-vector-btn');
             btn.innerHTML = '<i data-lucide="check" size="14"></i> Vector Saved';
             btn.classList.replace('bg-slate-900', 'bg-emerald-500');
-            
+
             setTimeout(() => {
                 btn.innerHTML = '<i data-lucide="star" size="14"></i> Save Vector';
                 btn.classList.replace('bg-emerald-500', 'bg-slate-900');
                 lucide.createIcons();
             }, 2000);
-            
+
             loadSavedVectors();
             lucide.createIcons();
         }
@@ -2660,7 +2795,7 @@ HTML_TEMPLATE = """
             const startName = document.getElementById('start-st').options[document.getElementById('start-st').selectedIndex].text;
             const endName = document.getElementById('end-st').options[document.getElementById('end-st').selectedIndex].text;
             const msg = `⚡ Commuting via HydMetro Pro: ${startName} to ${endName}. Optimized path found for ₹${lastCalculatedFare}!`;
-            
+
             if (navigator.share) {
                 navigator.share({ title: 'HydMetro Route', text: msg, url: window.location.href });
             } else {
@@ -2680,9 +2815,9 @@ HTML_TEMPLATE = """
             const history = JSON.parse(localStorage.getItem('metro_feedback') || '[]');
             const container = document.getElementById('feedback-history');
             const empty = document.getElementById('feedback-empty');
-            
+
             if (!container) return;
-            
+
             container.innerHTML = '';
             if (history.length > 0) {
                 if (empty) empty.classList.add('hidden');
@@ -2714,7 +2849,7 @@ HTML_TEMPLATE = """
         async function submitFeedback() {
             const msg = document.getElementById('feedback-msg').value.trim();
             const cat = document.getElementById('feedback-cat').value;
-            
+
             if (!msg) {
                 alert("The neural matrix requires data. Please type a message.");
                 return;
@@ -2747,17 +2882,17 @@ HTML_TEMPLATE = """
             // Clear Input
             document.getElementById('feedback-msg').value = '';
             setSentiment('neutral');
-            
+
             // UI Update
             loadFeedback();
-            
+
             // Success Effect
             const btn = document.querySelector('[onclick="submitFeedback()"]');
             const oldHtml = btn.innerHTML;
             btn.classList.replace('bg-slate-900', 'bg-emerald-500');
             btn.innerHTML = '<i data-lucide="shield-check" size="14"></i> Transmission Complete';
             lucide.createIcons();
-            
+
             setTimeout(() => {
                 btn.classList.replace('bg-emerald-500', 'bg-slate-900');
                 btn.innerHTML = oldHtml;
@@ -2771,7 +2906,7 @@ HTML_TEMPLATE = """
             const sel = document.getElementById('upi-selection');
             const btn = document.getElementById('pay-btn-main');
             const isHidden = sel.classList.contains('hidden');
-            
+
             sel.classList.toggle('hidden');
             btn.innerHTML = isHidden ? '<i data-lucide="chevron-up" size="14"></i> Cancel Selection' : '<i data-lucide="smartphone" size="14"></i> Select Payment App';
             lucide.createIcons();
@@ -2780,7 +2915,7 @@ HTML_TEMPLATE = """
         function payWithUPI(appName) {
             const startNode = document.getElementById('start-st');
             const endNode = document.getElementById('end-st');
-            
+
             if (!startNode.value || !endNode.value) {
                 alert("Please simulate a route in the Path Architect first to generate trip data.");
                 showTab('routes');
@@ -2790,7 +2925,7 @@ HTML_TEMPLATE = """
             const amount = lastCalculatedFare;
             const fromNameFull = startNode.options[startNode.selectedIndex].text;
             const toNameFull = endNode.options[endNode.selectedIndex].text;
-            
+
             // Clean names (remove icons/suffixes)
             const clean = (str) => {
                 let s = str.split(' ').slice(1).join(' '); // Skip emoji
@@ -2805,7 +2940,7 @@ HTML_TEMPLATE = """
                     <p class="text-[8px] font-bold text-white/40 mt-2">Connecting to Secure Gateway</p>
                 </div>
             `;
-            
+
             setTimeout(() => {
                 upiSelection.innerHTML = `
                     <div class="col-span-2 flex flex-col items-center justify-center p-6 bg-emerald-500 rounded-3xl animate-in zoom-in duration-500">
@@ -2815,7 +2950,7 @@ HTML_TEMPLATE = """
                     </div>
                 `;
                 lucide.createIcons();
-                
+
                 setTimeout(() => {
                     generateTicket({
                         from: clean(fromNameFull),
@@ -2842,7 +2977,7 @@ HTML_TEMPLATE = """
 
             showTab('tickets');
             renderTickets();
-            
+
             // Animation effect
             const container = document.getElementById('active-ticket-container');
             container.classList.add('animate-bounce');
@@ -2931,7 +3066,7 @@ HTML_TEMPLATE = """
                     </div>
                 `;
                 activeContainer.appendChild(card);
-                
+
                 // Generate QR
                 new QRCode(document.getElementById("ticket-qr"), {
                     text: JSON.stringify({ id: activeTicket.id, u: "AIS-HYD", auth: "NEURAL-PRO" }),
@@ -3009,7 +3144,7 @@ HTML_TEMPLATE = """
             }
             const gRef = document.getElementById('map-user-pin');
             let pin = document.getElementById('user-location-pin');
-            
+
             const lats = stations.map(s => s.lat), lngs = stations.map(s => s.lng);
             const xs = stations.map(s => s.x), ys = stations.map(s => s.y);
 
@@ -3033,7 +3168,7 @@ HTML_TEMPLATE = """
                 gRef.appendChild(pin);
             }
             pin.setAttribute('transform', `translate(${x}, ${y})`);
-            
+
             // Try to resolve "Natural" address if in dashboard
             const locText = document.getElementById('user-location-text');
             if (locText) {
@@ -3047,7 +3182,7 @@ HTML_TEMPLATE = """
                 manualRefreshGeo();
                 return;
             }
-            
+
             const lats = stations.map(s => s.lat), lngs = stations.map(s => s.lng);
             const xs = stations.map(s => s.x), ys = stations.map(s => s.y);
             const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -3069,15 +3204,96 @@ HTML_TEMPLATE = """
             tabState = id;
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.mobile-link').forEach(l => l.classList.remove('active'));
-            
+
             document.getElementById('tab-'+id).classList.add('active');
             document.getElementById('mob-'+id).classList.add('active');
-            
+
             if(id === 'map') {
                 setTimeout(resetMap, 50);
+                setTimeout(resetMap, 300);
+                setTimeout(resetMap, 1000);
+            } else if (id === 'stations') {
+                renderStationsDirectory();
             } else {
                 closeOverlay();
             }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        let currentDirFilter = 'All';
+        function filterDirByLine(line) {
+            currentDirFilter = line;
+            document.querySelectorAll('.dir-line-btn').forEach(b => {
+                b.classList.remove('active', 'bg-white', 'shadow-sm');
+            });
+            const btn = document.getElementById('dir-filter-' + line);
+            btn.classList.add('active');
+            if(line !== 'All') btn.classList.add('bg-white', 'shadow-sm');
+            renderStationsDirectory();
+        }
+
+        function renderStationsDirectory() {
+            const grid = document.getElementById('stations-grid');
+            if (!grid) return;
+            const searchQ = document.getElementById('dir-search').value.toLowerCase().trim();
+            grid.innerHTML = '';
+
+            let filteredSt = currentDirFilter === 'All' ? stations : stations.filter(s => s.line === currentDirFilter);
+            if (searchQ) {
+                filteredSt = filteredSt.filter(s => s.name.toLowerCase().includes(searchQ) || s.id.toLowerCase().includes(searchQ));
+            }
+
+            if (filteredSt.length === 0) {
+                grid.innerHTML = '<div class="col-span-full py-32 text-center flex flex-col items-center justify-center text-slate-300"><i data-lucide="search-x" size="48" class="mb-4 opacity-10"></i><p class="text-[10px] font-black uppercase tracking-widest opacity-40">No stations detected in this sector</p></div>';
+                lucide.createIcons();
+                return;
+            }
+
+            const interchanges = ['Ameerpet', 'MG Bus Station', 'Parade Ground'];
+
+            filteredSt.forEach((s, idx) => {
+                const card = document.createElement('div');
+                card.className = "glass-card p-6 flex flex-col gap-5 group cursor-pointer hover:border-blue-400 hover:shadow-xl hover:shadow-blue-500/5 transition-all active:scale-[0.98] animate-in fade-in slide-in-from-bottom-4 duration-500";
+                card.style.animationDelay = `${idx * 30}ms`;
+                card.onclick = () => {
+                    showTab('map');
+                    handleStationInteraction(s);
+                };
+
+                const lineColor = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
+                const lineText = s.line === 'Red' ? 'text-red-500' : s.line === 'Blue' ? 'text-blue-500' : 'text-green-500';
+                const isInter = interchanges.includes(s.name);
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="w-10 h-10 ${lineColor} rounded-2xl flex items-center justify-center text-white shadow-lg shadow-current/20 group-hover:scale-110 transition-transform">
+                            <i data-lucide="${isInter ? 'shuffle' : 'train-front'}" size="18"></i>
+                        </div>
+                        <div class="flex flex-col items-end gap-1">
+                            <span class="text-[9px] font-black uppercase ${lineText} tracking-[0.2em] bg-slate-50 px-3 py-1 rounded-full border border-slate-100">${s.line} Line</span>
+                            ${isInter ? '<span class="text-[7px] font-black uppercase text-amber-500 tracking-widest bg-amber-50 px-2 py-0.5 rounded border border-amber-100">Interchange Hub</span>' : ''}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-xl font-black text-slate-900 tracking-tight group-hover:text-blue-600 transition-colors uppercase italic">${s.name}</h4>
+                        <div class="flex items-center gap-2 mt-2">
+                             <div class="w-1 h-1 rounded-full bg-slate-300"></div>
+                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${s.id} Node</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2 mt-auto">
+                        ${(s.amenities || ['Parking', 'ATM', 'Lift', 'Security']).slice(0, 3).map(a => `
+                            <span class="px-2.5 py-1 bg-slate-50 border border-slate-100 rounded-lg text-[8px] font-black text-slate-500 uppercase tracking-tighter group-hover:bg-blue-50 group-hover:border-blue-100 transition-colors">${a}</span>
+                        `).join('')}
+                    </div>
+                    <div class="pt-4 border-t border-slate-50 flex items-center justify-between">
+                         <span class="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">View Terminal Intel</span>
+                         <i data-lucide="arrow-right" size="12" class="text-slate-300 group-hover:translate-x-1 transition-transform group-hover:text-blue-500"></i>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            lucide.createIcons();
         }
 
         function closeOverlay() {
@@ -3210,7 +3426,7 @@ HTML_TEMPLATE = """
         function showMapSuggestions(val) {
             const sugg = document.getElementById('map-suggestions');
             const q = val.toLowerCase().trim();
-            
+
             if (q.length < 1) {
                 sugg.classList.add('hidden');
                 return;
@@ -3251,7 +3467,7 @@ HTML_TEMPLATE = """
         function filterMapStations(query) {
             const q = query.toLowerCase().trim();
             const clearBtn = document.getElementById('search-clear');
-            
+
             if (q === '') {
                 clearBtn.classList.add('hidden');
             } else {
@@ -3275,9 +3491,9 @@ HTML_TEMPLATE = """
                     console.log("Empty location payload, aborting update.");
                     return;
                 }
-                
+
                 document.getElementById('board-loading').classList.remove('hidden');
-                
+
                 if (lat && lng) updateUserPin(lat, lng);
 
                 const body = stationId ? { station_id: stationId } : { lat, lng };
@@ -3288,7 +3504,7 @@ HTML_TEMPLATE = """
                 });
                 if (!res.ok) throw new Error("API Offline");
                 const data = await res.json();
-                
+
                 lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
                 if (lat && lng) lastUserLoc = { lat, lng };
 
@@ -3299,13 +3515,13 @@ HTML_TEMPLATE = """
                 if (distStatus) {
                     distStatus.innerText = data.distance + ' km to ' + data.station.name;
                 }
-                
+
                 const walkTimeEl = document.getElementById('near-walk-time');
                 if (walkTimeEl) {
                     walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
                     walkTimeEl.classList.remove('hidden');
                 }
-                
+
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
 
@@ -3322,7 +3538,7 @@ HTML_TEMPLATE = """
                     document.getElementById('greeting-mob').innerText = data.greeting + '!';
                 }
                 document.getElementById('weather-val').innerText = data.weather.temp + '°C, ' + data.weather.condition;
-                
+
                 // Sync selector if in auto-mode
                 const selector = document.getElementById('board-station-selector');
                 if (!stationId) {
@@ -3348,7 +3564,7 @@ HTML_TEMPLATE = """
                 });
                 const rows = document.getElementById('board-rows'); rows.innerHTML = '';
                 document.getElementById('board-loading').classList.add('hidden');
-                
+
                 if (data.upcoming.length === 0) {
                     rows.innerHTML = '<tr><td colspan="4" class="py-16 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest bg-slate-50/50 rounded-2xl">Signal Lost. No Upcoming departures in this vector.</td></tr>';
                 }
@@ -3480,7 +3696,7 @@ HTML_TEMPLATE = """
             const btn = document.getElementById('plan-btn');
             const btnText = document.getElementById('btn-text');
             const loader = document.getElementById('btn-loader');
-            
+
             btn.disabled = true;
             btnText.classList.add('opacity-0');
             loader.classList.remove('hidden');
@@ -3491,19 +3707,19 @@ HTML_TEMPLATE = """
 
                 const res = await fetchWithSim('/api/plan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({from: f, to: t}) });
                 const data = await res.json();
-                
+
                 currentPlannedRoute = data;
                 document.getElementById('route-output').classList.remove('hidden');
                 const emptyState = document.getElementById('route-empty');
                 if (emptyState) emptyState.classList.add('hidden');
-                
+
                 // Details
                 document.getElementById('route-dur').innerText = (data.duration || 0) + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
                 document.getElementById('route-dist-main').innerText = data.total_km;
                 document.getElementById('route-dist').innerText = data.total_km;
                 document.getElementById('route-rec').innerText = data.recommendation;
-                
+
                 // Eco Metrics
                 document.getElementById('route-co2').innerText = (data.eco.co2 || 0) + 'kg';
                 document.getElementById('route-cal').innerText = (data.eco.calories || 0);
@@ -3517,15 +3733,15 @@ HTML_TEMPLATE = """
                 loadForecast.innerText = `${loadVal}% Capacity Utilization`;
                 peakPct.innerText = `${data.peak_intensity || 0}% PK`;
                 loadBar.style.width = `${loadVal}%`;
-                
+
                 // Color bar based on load
                 loadBar.className = 'h-full transition-all duration-1000 ' + 
                                   (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
-                
+
                 lastCalculatedFare = data.fare;
-                
+
                 const seq = document.getElementById('route-seq'); seq.innerHTML = '';
-                
+
                 // Add Metrics Grid
                 const metricsDiv = document.createElement('div');
                 metricsDiv.className = "grid grid-cols-2 gap-4 mb-8 bg-slate-50 p-6 rounded-[24px] border border-slate-100";
@@ -3541,11 +3757,11 @@ HTML_TEMPLATE = """
                     guideHeader.className = "text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-6 flex items-center gap-2";
                     guideHeader.innerHTML = `<i data-lucide="shuffle" size="12"></i> Critical Interchange Vectors`;
                     seq.appendChild(guideHeader);
-                    
+
                     data.guides.forEach((g, gIdx) => {
                         const gDiv = document.createElement('div');
                         gDiv.className = "bg-slate-900 border border-slate-800 p-8 rounded-[40px] shadow-2xl mb-10 relative overflow-hidden group border-l-[12px] border-l-blue-500 animate-in slide-in-from-right duration-700";
-                        
+
                         let connectionsHtml = "";
                         if (g.connections && g.connections.length > 0) {
                             connectionsHtml = `
@@ -3661,7 +3877,7 @@ HTML_TEMPLATE = """
                         </div>`;
                     sched.appendChild(div);
                 });
-                
+
                 lucide.createIcons();
                 document.getElementById('route-output').scrollIntoView({ behavior: 'smooth' });
 
@@ -3685,11 +3901,11 @@ HTML_TEMPLATE = """
                 const select = document.getElementById(id);
                 if (!select) return;
                 select.innerHTML = '<option value="" disabled selected>Explore Matrix Access...</option>';
-                
+
                 lines.forEach(line => {
                     const group = document.createElement('optgroup');
                     group.label = `${lineIcons[line]} ${line} Line Network`;
-                    
+
                     stations.filter(s => s.line === line).sort((a,b) => a.name.localeCompare(b.name)).forEach(st => {
                         const opt = document.createElement('option');
                         opt.value = st.id;
@@ -3708,7 +3924,7 @@ HTML_TEMPLATE = """
             try {
                 const res = await fetchWithSim('/api/live-map');
                 const data = await res.json();
-                
+
                 const seenIds = new Set();
                 if (data.trains) {
                     data.trains.forEach(t => {
