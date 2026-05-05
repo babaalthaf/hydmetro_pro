@@ -3569,8 +3569,8 @@ HTML_TEMPLATE = """
                 
                 syncSuccessOnce = true;
                 window.lastNearestStation = data.station;
+                if (lat && lng && !stationId) lastUserLoc = { lat, lng };
                 lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
-                if (lat && lng) lastUserLoc = { lat, lng };
 
                 // Update UI with real data context
                 setElText('near-name', data.station.name);
@@ -3821,6 +3821,7 @@ HTML_TEMPLATE = """
                 }
                 
                 lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                console.log("GPS Fix Acquired:", lastUserLoc);
                 await updateBoardData(pos.coords.latitude, pos.coords.longitude);
                 
                 if (status) {
@@ -3862,6 +3863,8 @@ HTML_TEMPLATE = """
                     const ipRes = await fetch('https://ipapi.co/json/');
                     const ipData = await ipRes.json();
                     if (ipData.latitude && ipData.longitude) {
+                        lastUserLoc = { lat: ipData.latitude, lng: ipData.longitude };
+                        console.log("IP Fallback Success:", lastUserLoc);
                         gpsFallbackMsg = "IP Location Active | Fallback Mode";
                         if (status) status.innerText = "IP Geo-Sync Active. Centering Map.";
                         await updateBoardData(ipData.latitude, ipData.longitude);
