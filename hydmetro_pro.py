@@ -27,7 +27,6 @@ if GEMINI_API_KEY:
     except Exception as e:
         print(f"Gemini Init Error: {e}")
 
-
 # ==========================================
 # 1. ENHANCED DATA ENGINEERING & AI LOGIC
 # ==========================================
@@ -37,7 +36,6 @@ def get_ist_now():
     base_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
     return base_now
 
-
 def get_app_now():
     """Context-aware time for app logic."""
     if request and 'sim_hour' in request.args:
@@ -46,10 +44,8 @@ def get_app_now():
             m = int(request.args.get('sim_min', 0))
             now = get_ist_now()
             return now.replace(hour=h, minute=m, second=0, microsecond=0)
-        except:
-            pass
+        except: pass
     return get_ist_now()
-
 
 def get_ai_insight(prompt):
     """Uses Gemini to generate real-time transit insights if key is provided."""
@@ -65,35 +61,34 @@ def get_ai_insight(prompt):
         print(f"Gemini Inference Error: {e}")
         return None
 
-
 def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
     """Predicts load using the logic from the trained dataset formula with optional weather influence."""
     # Base logic (Fast fallback)
     is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
     is_it_hub = 1 if station_name in ['Hitech City', 'Madhapur', 'Raidurg'] else 0
-    is_festival = 0  # Default for live
-
+    is_festival = 0 # Default for live
+    
     score = 50 + (is_peak * 100) + (is_it_hub * 80) + (is_festival * 120)
     if is_weekend: score -= 20
-
+    
     if weather:
         if "Rain" in weather.get('condition', ''):
             score += 25
         if weather.get('temp', 30) > 35:
             score += 15
-
+    
     recommendation = "🟢 Good to travel"
-    if score > 200:
+    if score > 200: 
         load_lvl, recommendation = "High", "🔴 High Rush"
-    elif score > 140:
+    elif score > 140: 
         load_lvl, recommendation = "M-High", "🟡 Rush but manageable"
-    elif score > 100:
+    elif score > 100: 
         load_lvl, recommendation = "Medium", "🟢 Seat will be there"
     else:
         load_lvl, recommendation = "Low", "🟢 Good to travel"
 
     # Neural Enhancement: Attempt to get a real-world tip from Gemini
-    if ai_client and random.random() < 0.3:  # Don't over-call during dev
+    if ai_client and random.random() < 0.3: # Don't over-call during dev
         insight_prompt = f"Give a very short (10 words max) transit tip for someone at {station_name} metro station in Hyderabad at {hour}:00. Weather is {weather.get('condition', 'Unknown')} at {weather.get('temp', 'unknown')}C. Be witty."
         insight = get_ai_insight(insight_prompt)
         if insight:
@@ -101,16 +96,15 @@ def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
 
     return load_lvl, recommendation
 
-
 def get_live_weather(lat=None, lng=None):
     """Fetches real-time weather from Open-Meteo with extra metrics."""
     if lat is None or lng is None:
-        lat, lng = 17.3850, 78.4867  # Default Hyderabad
-
+        lat, lng = 17.3850, 78.4867 # Default Hyderabad
+        
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=relative_humidity_2m,visibility"
         data = requests.get(url, timeout=2).json()
-
+        
         wmo_mapping = {
             0: "Sunny", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
             45: "Foggy", 48: "Rime Fog", 51: "Light Drizzle", 53: "Moderate Drizzle",
@@ -120,34 +114,29 @@ def get_live_weather(lat=None, lng=None):
         }
         code = data['current_weather']['weathercode']
         condition = wmo_mapping.get(code, "Cloudy")
-
+        
         ist_now = get_ist_now()
         h_idx = ist_now.hour
-
+        
         return {
             'temp': data['current_weather']['temperature'],
             'condition': condition,
-            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(
-                data['hourly']['relative_humidity_2m']) else 45,
-            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(
-                data['hourly']['visibility']) else 10,
+            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(data['hourly']['relative_humidity_2m']) else 45,
+            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(data['hourly']['visibility']) else 10,
             'aqi': random.randint(30, 70)
         }
     except:
         return {'temp': 30, 'condition': 'Clear Sky', 'humidity': 45, 'visibility': 10, 'aqi': 42}
 
-
 def generate_ai_dataset():
     """Generates a mock ridership dataset for AI training simulation."""
     stations_for_df = [s['name'] for s in STATIONS_LIST]
     sample_size = 500
-
+    
     with open("final_metro_dataset.csv", "w", newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(
-            ['stop_name', 'arrival_time', 'platform', 'hour', 'day_of_week', 'is_peak', 'is_weekend', 'is_it_hub',
-             'temperature', 'rainfall', 'is_festival', 'ridership'])
-
+        writer.writerow(['stop_name', 'arrival_time', 'platform', 'hour', 'day_of_week', 'is_peak', 'is_weekend', 'is_it_hub', 'temperature', 'rainfall', 'is_festival', 'ridership'])
+        
         it_stations = ['Hitech City', 'Madhapur', 'Raidurg']
         base_time = get_ist_now() - timedelta(days=7)
 
@@ -156,158 +145,89 @@ def generate_ai_dataset():
             stop_name = random.choice(stations_for_df)
             hour = arrival.hour
             dow = arrival.weekday()
-
+            
             is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
             is_weekend = 1 if dow >= 5 else 0
             is_it_hub = 1 if stop_name in it_stations else 0
             temp = 25 + (hour % 12)
             rainfall = random.choice([0, 0, 5, 10])
             is_festival = 0
-
+            
             noise = random.gauss(0, 10)
             ridership = int(50 + (is_peak * 100) + (is_it_hub * 80) - (is_weekend * 20) + noise)
-
-            writer.writerow(
-                [stop_name, arrival.strftime('%Y-%m-%d %H:%M:%S'), random.choice(['1', '2']), hour, dow, is_peak,
-                 is_weekend, is_it_hub, temp, rainfall, is_festival, ridership])
+            
+            writer.writerow([stop_name, arrival.strftime('%Y-%m-%d %H:%M:%S'), random.choice(['1', '2']), hour, dow, is_peak, is_weekend, is_it_hub, temp, rainfall, is_festival, ridership])
     return True
-
 
 # ==========================================
 # 2. FULL DATASET (57 STATIONS)
 # ==========================================
 STATIONS_LIST = [
     # RED LINE (1-27)
-    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'lat': 17.4933, 'lng': 78.3484,
-     'amenities': ['Large Parking Area', 'Food Court', 'Medical Center'],
-     'description': 'Miyapur is a major residential hub and the western terminal of the metro. Nearby you’ll find DMart, GSM Mall, and multiple local shopping complexes. TSRTC bus connectivity is strong with Miyapur Bus Depot nearby, while the closest MMTS access is via Hafeezpet (a short ride away). The area is mostly residential but growing rapidly with apartments, making it ideal for commuters rather than tourism.'},
-    {'id': 'R2', 'name': 'JNTU College', 'line': 'Red', 'lat': 17.4877, 'lng': 78.3557,
-     'description': 'This station serves Jawaharlal Nehru Technological University and is surrounded by student hostels, bookstores, and cafes. Nearby shopping is mostly local markets, and bus connectivity is frequent. The closest MMTS is Kukatpally/Hafeezpet. It’s not a tourist spot but a strong student ecosystem.'},
-    {'id': 'R3', 'name': 'KPHB Colony', 'line': 'Red', 'lat': 17.4834, 'lng': 78.3883,
-     'description': 'KPHB is a lively area with Forum Sujana Mall, South India Shopping Mall, Manjeera Mall (nearby Kukatpally). TSRTC buses are frequent, and Kukatpally bus stops are close. MMTS access is via Hafeezpet. It’s great for shopping, street food, and casual hangouts.'},
-    {'id': 'R4', 'name': 'Kukatpally', 'line': 'Red', 'lat': 17.4842, 'lng': 78.3986,
-     'description': 'One of the busiest areas, Kukatpally has Manjeera Mall, Forum Mall, and extensive street shopping. It is well connected by buses and close to Kukatpally Y Junction. MMTS is accessible via Hafeezpet. Not a tourist hub, but excellent for shopping and food.'},
-    {'id': 'R5', 'name': 'Dr. B. R. Ambedkar Balanagar', 'line': 'Red', 'lat': 17.4776, 'lng': 78.4216,
-     'description': 'Balanagar is an industrial area with limited malls but strong TSRTC bus connectivity. The closest MMTS is Balanagar MMTS station. It’s mainly functional for workers; not much tourism here.'},
-    {'id': 'R6', 'name': 'Moosapet', 'line': 'Red', 'lat': 17.4727, 'lng': 78.4279,
-     'description': 'Moosapet has small commercial complexes and easy bus connectivity. Nearby MMTS stations include Bharat Nagar and Balanagar. The area is practical for commuting but not tourist-oriented.'},
-    {'id': 'R7', 'name': 'Bharat Nagar', 'line': 'Red', 'lat': 17.4646, 'lng': 78.4357,
-     'description': 'This station connects to Bharat Nagar MMTS Station, making it a key multimodal point. It has local shops and moderate bus connectivity. No major malls or tourist spots.'},
-    {'id': 'R8', 'name': 'Erragadda', 'line': 'Red', 'lat': 17.4572, 'lng': 78.4412,
-     'description': 'Erragadda is known for hospitals like ESI Hospital Hyderabad. Nearby are small shopping areas and bus stops. MMTS is accessible via Bharat Nagar. It’s more of a healthcare hub than a tourist destination.'},
-    {'id': 'R9', 'name': 'ESI Hospital', 'line': 'Red', 'lat': 17.4517, 'lng': 78.4457,
-     'description': 'This station directly serves medical facilities including ESI Hospital. Bus connectivity is strong, and MMTS access is via nearby stations like Bharat Nagar. No malls or tourist attractions here.'},
-    {'id': 'R10', 'name': 'S.R. Nagar', 'line': 'Red', 'lat': 17.4442, 'lng': 78.4484,
-     'description': 'SR Nagar is full of coaching institutes and student hostels. It has small shopping complexes and strong bus connectivity. The nearest MMTS is Nature Cure (towards Begumpet side). It’s a student hub rather than a tourist place.'},
-    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'lat': 17.4334, 'lng': 78.4484,
-     'amenities': ['Transfer Area', 'Ameerpet Metro Mall', 'Apollo Clinic'],
-     'description': 'Ameerpet Metro Station is the busiest interchange. Nearby malls include GVK One (Punjagutta), Hyderabad Central Mall. Bus connectivity is excellent, and MMTS stations like Begumpet are nearby. It’s a commercial hotspot with shopping, coaching centers, and food.'},
-    {'id': 'R12', 'name': 'Punjagutta', 'line': 'Red', 'lat': 17.4261, 'lng': 78.4522,
-     'amenities': ['Next Galleria Mall', 'PVR Cinemas'],
-     'description': 'Punjagutta is a premium commercial area with GVK One Mall, Next Galleria Mall. TSRTC buses are frequent, and MMTS is accessible via Begumpet. It’s great for shopping and dining.'},
-    {'id': 'R13', 'name': 'Irrum Manzil', 'line': 'Red', 'lat': 17.4184, 'lng': 78.4557,
-     'description': 'This station serves government offices and business areas. Limited shopping options but good bus connectivity. Nearest MMTS is Lakdikapul (via short travel). Not a tourist area.'},
-    {'id': 'R14', 'name': 'Khairatabad', 'line': 'Red', 'lat': 17.4101, 'lng': 78.4611,
-     'description': 'Khairatabad connects to Hussain Sagar, Birla Mandir Hyderabad, and Lumbini Park. Good TSRTC bus links and nearby MMTS Lakdikapul. This is a key tourist-friendly station.'},
-    {'id': 'R15', 'name': 'Lakdi-ka-pul', 'line': 'Red', 'lat': 17.4024, 'lng': 78.4657,
-     'description': 'Lakdikapul offers access to hotels, offices, and MMTS Lakdikapul station. Bus connectivity is strong. Tourist spots like Birla Mandir and Necklace Road are nearby.'},
-    {'id': 'R16', 'name': 'Assembly', 'line': 'Red', 'lat': 17.3984, 'lng': 78.4723,
-     'description': 'This station serves the Telangana Assembly area. Limited shopping, but strong bus routes. MMTS is nearby at Lakdikapul. Not tourist-focused.'},
-    {'id': 'R17', 'name': 'Nampally', 'line': 'Red', 'lat': 17.3916, 'lng': 78.4757,
-     'description': 'Nampally connects to Hyderabad Deccan Railway Station and Exhibition Grounds. Good bus services and railway connectivity. Tourist places include markets and heritage zones.'},
-    {'id': 'R18', 'name': 'Gandhi Bhavan', 'line': 'Red', 'lat': 17.3872, 'lng': 78.4784,
-     'description': 'A commercial and political area with local shops and bus access. MMTS is via Nampally. No major tourist attractions.'},
-    {'id': 'R19', 'name': 'Osmania Medical College', 'name_alias': 'OMC', 'line': 'Red', 'lat': 17.3824, 'lng': 78.4812,
-     'description': 'Serves Osmania Medical College and hospitals. Bus connectivity is strong. Not a shopping or tourist hub.'},
-    {'id': 'R20', 'name': 'MG Bus Station', 'name_alias': 'MGBS', 'line': 'Red', 'lat': 17.3776, 'lng': 78.4815,
-     'amenities': ['Interstate Bus Station', 'Multi-level Parking'],
-     'description': 'Mahatma Gandhi Bus Station is a massive TSRTC hub and interchange with Green Line. Nearby attractions include Charminar, Laad Bazaar, and Salar Jung Museum. No malls, but rich heritage.'},
-    {'id': 'R21', 'name': 'Malakpet', 'line': 'Red', 'lat': 17.3752, 'lng': 78.4907,
-     'description': 'Malakpet has local markets and bus connectivity. Nearby MMTS Malakpet station is available. It’s a residential and cultural area.'},
-    {'id': 'R22', 'name': 'New Market', 'line': 'Red', 'lat': 17.3712, 'lng': 78.5084,
-     'description': 'Traditional shopping area with local vendors and bus access. No MMTS directly, but nearby Malakpet station. Good for budget shopping.'},
-    {'id': 'R23', 'name': 'Musarambagh', 'line': 'Red', 'lat': 17.3684, 'lng': 78.5212,
-     'description': 'Residential locality with TSRTC buses and limited shopping. No major tourist attractions.'},
-    {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'lat': 17.3657, 'lng': 78.5357,
-     'description': 'Major commercial hub with shopping complexes, street food, and bus connectivity. MMTS Malakpet is nearby. It’s one of the busiest areas in east Hyderabad.'},
-    {'id': 'R25', 'name': 'Chaitanyapuri', 'line': 'Red', 'lat': 17.3612, 'lng': 78.5484,
-     'description': 'Residential area with small shops and good bus connectivity. Not a tourist spot.'},
-    {'id': 'R26', 'name': 'Victoria Memorial', 'line': 'Red', 'lat': 17.3557, 'lng': 78.5512,
-     'description': 'Quiet suburban station with minimal commercial activity. Mainly residential.'},
-    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'lat': 17.3458, 'lng': 78.5524,
-     'amenities': ['South Terminal', 'Auto Stand'],
-     'description': 'The terminal station with strong TSRTC bus depot connectivity and highway access. It has shopping complexes and serves as a major transit junction for eastern Hyderabad.'},
+    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'lat': 17.4933, 'lng': 78.3484, 'amenities': ['Large Parking Area', 'Food Court', 'Medical Center'], 'description': 'Miyapur is a major residential hub and the western terminal of the metro. Nearby you’ll find DMart, GSM Mall, and multiple local shopping complexes. TSRTC bus connectivity is strong with Miyapur Bus Depot nearby, while the closest MMTS access is via Hafeezpet (a short ride away). The area is mostly residential but growing rapidly with apartments, making it ideal for commuters rather than tourism.'},
+    {'id': 'R2', 'name': 'JNTU College', 'line': 'Red', 'lat': 17.4877, 'lng': 78.3557, 'description': 'This station serves Jawaharlal Nehru Technological University and is surrounded by student hostels, bookstores, and cafes. Nearby shopping is mostly local markets, and bus connectivity is frequent. The closest MMTS is Kukatpally/Hafeezpet. It’s not a tourist spot but a strong student ecosystem.'},
+    {'id': 'R3', 'name': 'KPHB Colony', 'line': 'Red', 'lat': 17.4834, 'lng': 78.3883, 'description': 'KPHB is a lively area with Forum Sujana Mall, South India Shopping Mall, Manjeera Mall (nearby Kukatpally). TSRTC buses are frequent, and Kukatpally bus stops are close. MMTS access is via Hafeezpet. It’s great for shopping, street food, and casual hangouts.'},
+    {'id': 'R4', 'name': 'Kukatpally', 'line': 'Red', 'lat': 17.4842, 'lng': 78.3986, 'description': 'One of the busiest areas, Kukatpally has Manjeera Mall, Forum Mall, and extensive street shopping. It is well connected by buses and close to Kukatpally Y Junction. MMTS is accessible via Hafeezpet. Not a tourist hub, but excellent for shopping and food.'},
+    {'id': 'R5', 'name': 'Dr. B. R. Ambedkar Balanagar', 'line': 'Red', 'lat': 17.4776, 'lng': 78.4216, 'description': 'Balanagar is an industrial area with limited malls but strong TSRTC bus connectivity. The closest MMTS is Balanagar MMTS station. It’s mainly functional for workers; not much tourism here.'},
+    {'id': 'R6', 'name': 'Moosapet', 'line': 'Red', 'lat': 17.4727, 'lng': 78.4279, 'description': 'Moosapet has small commercial complexes and easy bus connectivity. Nearby MMTS stations include Bharat Nagar and Balanagar. The area is practical for commuting but not tourist-oriented.'},
+    {'id': 'R7', 'name': 'Bharat Nagar', 'line': 'Red', 'lat': 17.4646, 'lng': 78.4357, 'description': 'This station connects to Bharat Nagar MMTS Station, making it a key multimodal point. It has local shops and moderate bus connectivity. No major malls or tourist spots.'},
+    {'id': 'R8', 'name': 'Erragadda', 'line': 'Red', 'lat': 17.4572, 'lng': 78.4412, 'description': 'Erragadda is known for hospitals like ESI Hospital Hyderabad. Nearby are small shopping areas and bus stops. MMTS is accessible via Bharat Nagar. It’s more of a healthcare hub than a tourist destination.'},
+    {'id': 'R9', 'name': 'ESI Hospital', 'line': 'Red', 'lat': 17.4517, 'lng': 78.4457, 'description': 'This station directly serves medical facilities including ESI Hospital. Bus connectivity is strong, and MMTS access is via nearby stations like Bharat Nagar. No malls or tourist attractions here.'},
+    {'id': 'R10', 'name': 'S.R. Nagar', 'line': 'Red', 'lat': 17.4442, 'lng': 78.4484, 'description': 'SR Nagar is full of coaching institutes and student hostels. It has small shopping complexes and strong bus connectivity. The nearest MMTS is Nature Cure (towards Begumpet side). It’s a student hub rather than a tourist place.'},
+    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'lat': 17.4334, 'lng': 78.4484, 'amenities': ['Transfer Area', 'Ameerpet Metro Mall', 'Apollo Clinic'], 'description': 'Ameerpet Metro Station is the busiest interchange. Nearby malls include GVK One (Punjagutta), Hyderabad Central Mall. Bus connectivity is excellent, and MMTS stations like Begumpet are nearby. It’s a commercial hotspot with shopping, coaching centers, and food.'},
+    {'id': 'R12', 'name': 'Punjagutta', 'line': 'Red', 'lat': 17.4261, 'lng': 78.4522, 'amenities': ['Next Galleria Mall', 'PVR Cinemas'], 'description': 'Punjagutta is a premium commercial area with GVK One Mall, Next Galleria Mall. TSRTC buses are frequent, and MMTS is accessible via Begumpet. It’s great for shopping and dining.'},
+    {'id': 'R13', 'name': 'Irrum Manzil', 'line': 'Red', 'lat': 17.4184, 'lng': 78.4557, 'description': 'This station serves government offices and business areas. Limited shopping options but good bus connectivity. Nearest MMTS is Lakdikapul (via short travel). Not a tourist area.'},
+    {'id': 'R14', 'name': 'Khairatabad', 'line': 'Red', 'lat': 17.4101, 'lng': 78.4611, 'description': 'Khairatabad connects to Hussain Sagar, Birla Mandir Hyderabad, and Lumbini Park. Good TSRTC bus links and nearby MMTS Lakdikapul. This is a key tourist-friendly station.'},
+    {'id': 'R15', 'name': 'Lakdi-ka-pul', 'line': 'Red', 'lat': 17.4024, 'lng': 78.4657, 'description': 'Lakdikapul offers access to hotels, offices, and MMTS Lakdikapul station. Bus connectivity is strong. Tourist spots like Birla Mandir and Necklace Road are nearby.'},
+    {'id': 'R16', 'name': 'Assembly', 'line': 'Red', 'lat': 17.3984, 'lng': 78.4723, 'description': 'This station serves the Telangana Assembly area. Limited shopping, but strong bus routes. MMTS is nearby at Lakdikapul. Not tourist-focused.'},
+    {'id': 'R17', 'name': 'Nampally', 'line': 'Red', 'lat': 17.3916, 'lng': 78.4757, 'description': 'Nampally connects to Hyderabad Deccan Railway Station and Exhibition Grounds. Good bus services and railway connectivity. Tourist places include markets and heritage zones.'},
+    {'id': 'R18', 'name': 'Gandhi Bhavan', 'line': 'Red', 'lat': 17.3872, 'lng': 78.4784, 'description': 'A commercial and political area with local shops and bus access. MMTS is via Nampally. No major tourist attractions.'},
+    {'id': 'R19', 'name': 'Osmania Medical College', 'name_alias': 'OMC', 'line': 'Red', 'lat': 17.3824, 'lng': 78.4812, 'description': 'Serves Osmania Medical College and hospitals. Bus connectivity is strong. Not a shopping or tourist hub.'},
+    {'id': 'R20', 'name': 'MG Bus Station', 'name_alias': 'MGBS', 'line': 'Red', 'lat': 17.3776, 'lng': 78.4815, 'amenities': ['Interstate Bus Station', 'Multi-level Parking'], 'description': 'Mahatma Gandhi Bus Station is a massive TSRTC hub and interchange with Green Line. Nearby attractions include Charminar, Laad Bazaar, and Salar Jung Museum. No malls, but rich heritage.'},
+    {'id': 'R21', 'name': 'Malakpet', 'line': 'Red', 'lat': 17.3752, 'lng': 78.4907, 'description': 'Malakpet has local markets and bus connectivity. Nearby MMTS Malakpet station is available. It’s a residential and cultural area.'},
+    {'id': 'R22', 'name': 'New Market', 'line': 'Red', 'lat': 17.3712, 'lng': 78.5084, 'description': 'Traditional shopping area with local vendors and bus access. No MMTS directly, but nearby Malakpet station. Good for budget shopping.'},
+    {'id': 'R23', 'name': 'Musarambagh', 'line': 'Red', 'lat': 17.3684, 'lng': 78.5212, 'description': 'Residential locality with TSRTC buses and limited shopping. No major tourist attractions.'},
+    {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'lat': 17.3657, 'lng': 78.5357, 'description': 'Major commercial hub with shopping complexes, street food, and bus connectivity. MMTS Malakpet is nearby. It’s one of the busiest areas in east Hyderabad.'},
+    {'id': 'R25', 'name': 'Chaitanyapuri', 'line': 'Red', 'lat': 17.3612, 'lng': 78.5484, 'description': 'Residential area with small shops and good bus connectivity. Not a tourist spot.'},
+    {'id': 'R26', 'name': 'Victoria Memorial', 'line': 'Red', 'lat': 17.3557, 'lng': 78.5512, 'description': 'Quiet suburban station with minimal commercial activity. Mainly residential.'},
+    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'lat': 17.3458, 'lng': 78.5524, 'amenities': ['South Terminal', 'Auto Stand'], 'description': 'The terminal station with strong TSRTC bus depot connectivity and highway access. It has shopping complexes and serves as a major transit junction for eastern Hyderabad.'},
 
     # BLUE LINE (1-23)
-    {'id': 'B1', 'name': 'Nagole', 'line': 'Blue', 'lat': 17.3941, 'lng': 78.5668,
-     'description': 'Nagole is the eastern terminal of the Blue Line. It has a metro depot and good bus connectivity to outer Hyderabad. The area is developing with residential projects and small commercial centers.'},
-    {'id': 'B2', 'name': 'Uppal', 'line': 'Blue', 'lat': 17.3984, 'lng': 78.5684,
-     'description': 'A major residential and commercial hub with markets, shopping complexes, and strong TSRTC bus connectivity. MMTS access is available at Uppal station.'},
-    {'id': 'B3', 'name': 'Stadium', 'line': 'Blue', 'lat': 17.4021, 'lng': 78.5712,
-     'description': 'This station provides access to Rajiv Gandhi International Cricket Stadium. It becomes very busy during matches. Bus connectivity is strong, and MMTS is via Uppal.'},
-    {'id': 'B4', 'name': 'NGRI', 'line': 'Blue', 'lat': 17.4084, 'lng': 78.5684,
-     'description': 'Named after National Geophysical Research Institute, this station serves research facilities and residential areas. Limited shopping, but good bus connectivity.'},
-    {'id': 'B5', 'name': 'Habsiguda', 'line': 'Blue', 'lat': 17.4212, 'lng': 78.5584,
-     'description': 'A residential and research area with institutes like CCMB nearby. Bus connectivity is good, and MMTS is via Habsiguda/Jamai Osmania.'},
-    {'id': 'B6', 'name': 'Tarnaka', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.5472,
-     'description': 'Tarnaka serves students and staff of Osmania University. It has local markets, eateries, and good bus connectivity. MMTS is accessible via Jamai Osmania station.'},
-    {'id': 'B7', 'name': 'Mettuguda', 'line': 'Blue', 'lat': 17.4484, 'lng': 78.5342,
-     'description': 'A residential area with railway connectivity nearby. Bus services are moderate, and MMTS access is via Secunderabad. No major malls or tourist spots.'},
-    {'id': 'B8', 'name': 'Secunderabad East', 'line': 'Blue', 'lat': 17.4546, 'lng': 78.5212,
-     'description': 'Close to Secunderabad Railway Station, this station is a major transit hub. Bus, rail, and metro connectivity converge here. Nearby shopping areas and hotels make it very active.'},
-    {'id': 'B9', 'name': 'Parade Ground', 'line': 'Blue', 'lat': 17.4452, 'lng': 78.4985,
-     'description': 'An important interchange with the Green Line. Located in Secunderabad cantonment area, it has strong bus connectivity and access to markets. MMTS is nearby at Secunderabad station.'},
-    {'id': 'B10', 'name': 'Paradise', 'line': 'Blue', 'lat': 17.4568, 'lng': 78.4972,
-     'description': 'Famous for Paradise Biryani, this station is a food hotspot. Nearby markets and shopping areas make it lively. Bus connectivity is strong, and MMTS is accessible via Secunderabad.'},
-    {'id': 'B11', 'name': 'Rasoolpura', 'line': 'Blue', 'lat': 17.4502, 'lng': 78.4851,
-     'description': 'A dense locality with local markets and small businesses. Bus services are available, and MMTS is accessible via Begumpet. It’s mainly a transit stop.'},
-    {'id': 'B12', 'name': 'Prakash Nagar', 'line': 'Blue', 'lat': 17.4468, 'lng': 78.4720,
-     'description': 'A smaller station serving residential and office areas. Limited shopping options but good bus connectivity. MMTS is via Begumpet. Not a tourist area.'},
-    {'id': 'B13', 'name': 'Begumpet', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.4612,
-     'description': 'Begumpet is a business and residential hub with access to Begumpet Airport. Nearby are Hyderabad Central Mall and lifestyle stores. It connects directly to Begumpet MMTS Station, making it a key multimodal station.'},
-    {'id': 'B14', 'name': 'Ameerpet', 'line': 'Blue', 'lat': 17.4334, 'lng': 78.4484, 'name_alias': 'Ameerpet',
-     'description': 'Ameerpet Metro Station is the central interchange between Red and Blue lines. Nearby are Hyderabad Central Mall, GVK One Mall, and numerous coaching institutes. Bus connectivity is excellent, and MMTS stations like Begumpet are close.'},
-    {'id': 'B15', 'name': 'Madhura Nagar', 'line': 'Blue', 'lat': 17.4280, 'lng': 78.4420,
-     'description': 'A quiet residential locality with small shops and easy bus access. It mainly serves daily commuters. MMTS is accessible via nearby stations like Nature Cure.'},
-    {'id': 'B16', 'name': 'Yousufguda', 'line': 'Blue', 'lat': 17.4246, 'lng': 78.4357,
-     'description': 'A residential and sports-focused area, Yousufguda has local markets and stadium facilities. Bus connectivity is good, and MMTS is nearby at Begumpet. It’s more residential than commercial.'},
-    {'id': 'B17', 'name': 'Road No. 5 Jubilee Hills', 'line': 'Blue', 'lat': 17.4284, 'lng': 78.4239,
-     'description': 'This station connects to elite shopping streets and cafes in Jubilee Hills. It is close to KBR National Park, a major green space for walking and fitness. Bus services are frequent, and MMTS is via Begumpet.'},
-    {'id': 'B18', 'name': 'Jubilee Hills Check Post', 'line': 'Blue', 'lat': 17.4310, 'lng': 78.4120,
-     'description': 'A premium locality known for upscale residences, restaurants, and boutiques. Nearby malls include GVK One Mall and luxury dining places. Bus connectivity is available, and MMTS access is via Begumpet. It’s a high-end lifestyle area.'},
-    {'id': 'B19', 'name': 'Peddamma Gudi', 'line': 'Blue', 'lat': 17.4330, 'lng': 78.4050,
-     'description': 'This station is named after Peddamma Temple, a famous religious site. The area has local markets, eateries, and good bus connectivity. MMTS is accessible via nearby stations. It attracts devotees especially during festivals.'},
-    {'id': 'B20', 'name': 'Madhapur', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.3984,
-     'description': 'Madhapur is a vibrant IT and nightlife hub filled with cafes, pubs, and coworking spaces. It has access to shopping complexes and is close to Inorbit Mall. TSRTC buses connect well, and MMTS is via HITEC City. It’s one of the most happening areas in Hyderabad.'},
-    {'id': 'B21', 'name': 'Durgam Cheruvu', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.3857,
-     'description': 'Located near the scenic Durgam Cheruvu, this station is popular for evening outings. The cable bridge, lakefront parks, and cafes are key attractions. Bus connectivity is moderate, and MMTS is via HITEC City. No major malls right next to it, but Inorbit is nearby.'},
-    {'id': 'B22', 'name': 'HITEC City', 'line': 'Blue', 'lat': 17.4474, 'lng': 78.3762,
-     'description': 'This station serves HITEC City, one of India’s biggest tech hubs. Nearby are Inorbit Mall, Shilparamam Crafts Village, and multiple tech parks. Bus connectivity is strong, and HITEC City MMTS Station is within reach. It’s a major hotspot for offices, shopping, and nightlife.'},
-    {'id': 'B23', 'name': 'Raidurg', 'line': 'Blue', 'lat': 17.4429, 'lng': 78.3750,
-     'description': 'Raidurg is the western terminal of the Blue Line and sits at the edge of Hyderabad’s Financial District. It provides access to major IT campuses and offices. Nearby shopping includes Inorbit Mall and Sarath City Capital Mall (a short ride away). TSRTC buses connect Raidurg to Gachibowli and other IT areas, while the nearest MMTS access is via HITEC City station. Tourist spots include Durgam Cheruvu and the cable bridge nearby, making it a mix of work and leisure.'},
+    {'id': 'B1', 'name': 'Nagole', 'line': 'Blue', 'lat': 17.3941, 'lng': 78.5668, 'description': 'Nagole is the eastern terminal of the Blue Line. It has a metro depot and good bus connectivity to outer Hyderabad. The area is developing with residential projects and small commercial centers.'},
+    {'id': 'B2', 'name': 'Uppal', 'line': 'Blue', 'lat': 17.3984, 'lng': 78.5684, 'description': 'A major residential and commercial hub with markets, shopping complexes, and strong TSRTC bus connectivity. MMTS access is available at Uppal station.'},
+    {'id': 'B3', 'name': 'Stadium', 'line': 'Blue', 'lat': 17.4021, 'lng': 78.5712, 'description': 'This station provides access to Rajiv Gandhi International Cricket Stadium. It becomes very busy during matches. Bus connectivity is strong, and MMTS is via Uppal.'},
+    {'id': 'B4', 'name': 'NGRI', 'line': 'Blue', 'lat': 17.4084, 'lng': 78.5684, 'description': 'Named after National Geophysical Research Institute, this station serves research facilities and residential areas. Limited shopping, but good bus connectivity.'},
+    {'id': 'B5', 'name': 'Habsiguda', 'line': 'Blue', 'lat': 17.4212, 'lng': 78.5584, 'description': 'A residential and research area with institutes like CCMB nearby. Bus connectivity is good, and MMTS is via Habsiguda/Jamai Osmania.'},
+    {'id': 'B6', 'name': 'Tarnaka', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.5472, 'description': 'Tarnaka serves students and staff of Osmania University. It has local markets, eateries, and good bus connectivity. MMTS is accessible via Jamai Osmania station.'},
+    {'id': 'B7', 'name': 'Mettuguda', 'line': 'Blue', 'lat': 17.4484, 'lng': 78.5342, 'description': 'A residential area with railway connectivity nearby. Bus services are moderate, and MMTS access is via Secunderabad. No major malls or tourist spots.'},
+    {'id': 'B8', 'name': 'Secunderabad East', 'line': 'Blue', 'lat': 17.4546, 'lng': 78.5212, 'description': 'Close to Secunderabad Railway Station, this station is a major transit hub. Bus, rail, and metro connectivity converge here. Nearby shopping areas and hotels make it very active.'},
+    {'id': 'B9', 'name': 'Parade Ground', 'line': 'Blue', 'lat': 17.4452, 'lng': 78.4985, 'description': 'An important interchange with the Green Line. Located in Secunderabad cantonment area, it has strong bus connectivity and access to markets. MMTS is nearby at Secunderabad station.'},
+    {'id': 'B10', 'name': 'Paradise', 'line': 'Blue', 'lat': 17.4568, 'lng': 78.4972, 'description': 'Famous for Paradise Biryani, this station is a food hotspot. Nearby markets and shopping areas make it lively. Bus connectivity is strong, and MMTS is accessible via Secunderabad.'},
+    {'id': 'B11', 'name': 'Rasoolpura', 'line': 'Blue', 'lat': 17.4502, 'lng': 78.4851, 'description': 'A dense locality with local markets and small businesses. Bus services are available, and MMTS is accessible via Begumpet. It’s mainly a transit stop.'},
+    {'id': 'B12', 'name': 'Prakash Nagar', 'line': 'Blue', 'lat': 17.4468, 'lng': 78.4720, 'description': 'A smaller station serving residential and office areas. Limited shopping options but good bus connectivity. MMTS is via Begumpet. Not a tourist area.'},
+    {'id': 'B13', 'name': 'Begumpet', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.4612, 'description': 'Begumpet is a business and residential hub with access to Begumpet Airport. Nearby are Hyderabad Central Mall and lifestyle stores. It connects directly to Begumpet MMTS Station, making it a key multimodal station.'},
+    {'id': 'B14', 'name': 'Ameerpet', 'line': 'Blue', 'lat': 17.4334, 'lng': 78.4484, 'name_alias': 'Ameerpet', 'description': 'Ameerpet Metro Station is the central interchange between Red and Blue lines. Nearby are Hyderabad Central Mall, GVK One Mall, and numerous coaching institutes. Bus connectivity is excellent, and MMTS stations like Begumpet are close.'},
+    {'id': 'B15', 'name': 'Madhura Nagar', 'line': 'Blue', 'lat': 17.4280, 'lng': 78.4420, 'description': 'A quiet residential locality with small shops and easy bus access. It mainly serves daily commuters. MMTS is accessible via nearby stations like Nature Cure.'},
+    {'id': 'B16', 'name': 'Yousufguda', 'line': 'Blue', 'lat': 17.4246, 'lng': 78.4357, 'description': 'A residential and sports-focused area, Yousufguda has local markets and stadium facilities. Bus connectivity is good, and MMTS is nearby at Begumpet. It’s more residential than commercial.'},
+    {'id': 'B17', 'name': 'Road No. 5 Jubilee Hills', 'line': 'Blue', 'lat': 17.4284, 'lng': 78.4239, 'description': 'This station connects to elite shopping streets and cafes in Jubilee Hills. It is close to KBR National Park, a major green space for walking and fitness. Bus services are frequent, and MMTS is via Begumpet.'},
+    {'id': 'B18', 'name': 'Jubilee Hills Check Post', 'line': 'Blue', 'lat': 17.4310, 'lng': 78.4120, 'description': 'A premium locality known for upscale residences, restaurants, and boutiques. Nearby malls include GVK One Mall and luxury dining places. Bus connectivity is available, and MMTS access is via Begumpet. It’s a high-end lifestyle area.'},
+    {'id': 'B19', 'name': 'Peddamma Gudi', 'line': 'Blue', 'lat': 17.4330, 'lng': 78.4050, 'description': 'This station is named after Peddamma Temple, a famous religious site. The area has local markets, eateries, and good bus connectivity. MMTS is accessible via nearby stations. It attracts devotees especially during festivals.'},
+    {'id': 'B20', 'name': 'Madhapur', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.3984, 'description': 'Madhapur is a vibrant IT and nightlife hub filled with cafes, pubs, and coworking spaces. It has access to shopping complexes and is close to Inorbit Mall. TSRTC buses connect well, and MMTS is via HITEC City. It’s one of the most happening areas in Hyderabad.'},
+    {'id': 'B21', 'name': 'Durgam Cheruvu', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.3857, 'description': 'Located near the scenic Durgam Cheruvu, this station is popular for evening outings. The cable bridge, lakefront parks, and cafes are key attractions. Bus connectivity is moderate, and MMTS is via HITEC City. No major malls right next to it, but Inorbit is nearby.'},
+    {'id': 'B22', 'name': 'HITEC City', 'line': 'Blue', 'lat': 17.4474, 'lng': 78.3762, 'description': 'This station serves HITEC City, one of India’s biggest tech hubs. Nearby are Inorbit Mall, Shilparamam Crafts Village, and multiple tech parks. Bus connectivity is strong, and HITEC City MMTS Station is within reach. It’s a major hotspot for offices, shopping, and nightlife.'},
+    {'id': 'B23', 'name': 'Raidurg', 'line': 'Blue', 'lat': 17.4429, 'lng': 78.3750, 'description': 'Raidurg is the western terminal of the Blue Line and sits at the edge of Hyderabad’s Financial District. It provides access to major IT campuses and offices. Nearby shopping includes Inorbit Mall and Sarath City Capital Mall (a short ride away). TSRTC buses connect Raidurg to Gachibowli and other IT areas, while the nearest MMTS access is via HITEC City station. Tourist spots include Durgam Cheruvu and the cable bridge nearby, making it a mix of work and leisure.'},
 
     # GREEN LINE (1-10)
-    {'id': 'G1', 'name': 'JBS', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002,
-     'description': 'Jubilee Bus Station is a major TSRTC terminal and the northern end of the Green Line. It has strong bus connectivity and local markets. MMTS access is via Secunderabad East.'},
-    {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985,
-     'name_alias': 'Parade Ground',
-     'description': 'An important interchange with the Blue Line. Located in Secunderabad cantonment area, it has strong bus connectivity and access to markets. MMTS is nearby at Secunderabad station.'},
-    {'id': 'G3', 'name': 'Secunderabad West', 'line': 'Green', 'lat': 17.4410, 'lng': 78.5020,
-     'description': 'Close to Secunderabad Railway Station, this station serves busy commercial areas. Bus and rail connectivity make it a major transit point. Nearby hotels and markets.'},
-    {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'lat': 17.4335, 'lng': 78.5020,
-     'description': 'Directly serves Gandhi Hospital and medical college. Strong bus connectivity. Not a shopping or tourist area.'},
-    {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'lat': 17.4215, 'lng': 78.5030,
-     'description': 'A residential and commercial locality with local shops and bus access. MMTS is accessible via Secunderabad.'},
-    {'id': 'G6', 'name': 'RTC X Roads', 'line': 'Green', 'lat': 17.4080, 'lng': 78.5040,
-     'description': 'Famous for cinema halls and local eateries. It has strong bus connectivity and is a popular hangout spot for locals. No major malls, but excellent for food.'},
-    {'id': 'G7', 'name': 'Chikkadpally', 'line': 'Green', 'lat': 17.4025, 'lng': 78.4965,
-     'description': 'Residential area with local markets and coaching centers. Good bus connectivity. Not a tourist destination.'},
-    {'id': 'G8', 'name': 'Narayanaguda', 'line': 'Green', 'lat': 17.3964, 'lng': 78.4893,
-     'description': 'A student-heavy area with colleges and coaching centers. Local shops and bus connectivity are strong. MMTS is nearby at Kachiguda station.'},
-    {'id': 'G9', 'name': 'Sultan Bazaar', 'line': 'Green', 'lat': 17.3888, 'lng': 78.4842,
-     'description': 'Located near the historic Koti market area, this station is great for budget shopping. Heritage sites and heritage buildings are nearby. Strong bus link to Koti Bus Terminal.'},
-    {'id': 'G10', 'name': 'MG Bus Station', 'line': 'Green', 'lat': 17.3776, 'lng': 78.4815, 'name_alias': 'MGBS',
-     'description': 'Mahatma Gandhi Bus Station is a massive TSRTC hub and interchange with Blue Line. Nearby attractions include Charminar and Salar Jung Museum. No malls, but rich heritage.'}
+    {'id': 'G1', 'name': 'JBS', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002, 'description': 'Jubilee Bus Station is a major TSRTC terminal and the northern end of the Green Line. It has strong bus connectivity and local markets. MMTS access is via Secunderabad East.'},
+    {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985, 'name_alias': 'Parade Ground', 'description': 'An important interchange with the Blue Line. Located in Secunderabad cantonment area, it has strong bus connectivity and access to markets. MMTS is nearby at Secunderabad station.'},
+    {'id': 'G3', 'name': 'Secunderabad West', 'line': 'Green', 'lat': 17.4410, 'lng': 78.5020, 'description': 'Close to Secunderabad Railway Station, this station serves busy commercial areas. Bus and rail connectivity make it a major transit point. Nearby hotels and markets.'},
+    {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'lat': 17.4335, 'lng': 78.5020, 'description': 'Directly serves Gandhi Hospital and medical college. Strong bus connectivity. Not a shopping or tourist area.'},
+    {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'lat': 17.4215, 'lng': 78.5030, 'description': 'A residential and commercial locality with local shops and bus access. MMTS is accessible via Secunderabad.'},
+    {'id': 'G6', 'name': 'RTC X Roads', 'line': 'Green', 'lat': 17.4080, 'lng': 78.5040, 'description': 'Famous for cinema halls and local eateries. It has strong bus connectivity and is a popular hangout spot for locals. No major malls, but excellent for food.'},
+    {'id': 'G7', 'name': 'Chikkadpally', 'line': 'Green', 'lat': 17.4025, 'lng': 78.4965, 'description': 'Residential area with local markets and coaching centers. Good bus connectivity. Not a tourist destination.'},
+    {'id': 'G8', 'name': 'Narayanaguda', 'line': 'Green', 'lat': 17.3964, 'lng': 78.4893, 'description': 'A student-heavy area with colleges and coaching centers. Local shops and bus connectivity are strong. MMTS is nearby at Kachiguda station.'},
+    {'id': 'G9', 'name': 'Sultan Bazaar', 'line': 'Green', 'lat': 17.3888, 'lng': 78.4842, 'description': 'Located near the historic Koti market area, this station is great for budget shopping. Heritage sites and heritage buildings are nearby. Strong bus link to Koti Bus Terminal.'},
+    {'id': 'G10', 'name': 'MG Bus Station', 'line': 'Green', 'lat': 17.3776, 'lng': 78.4815, 'name_alias': 'MGBS', 'description': 'Mahatma Gandhi Bus Station is a massive TSRTC hub and interchange with Blue Line. Nearby attractions include Charminar and Salar Jung Museum. No malls, but rich heritage.'}
 ]
 
 LANDMARKS = [
@@ -324,10 +244,8 @@ LANDMARKS = [
 ]
 
 CONNECTIONS = {
-    'Red': ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16',
-            'R17', 'R18', 'R19', 'R20', 'R21', 'R22', 'R23', 'R24', 'R25', 'R26', 'R27'],
-    'Blue': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16',
-             'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'],
+    'Red': ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22', 'R23', 'R24', 'R25', 'R26', 'R27'],
+    'Blue': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'],
     'Green': ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']
 }
 
@@ -338,7 +256,6 @@ CONNECTIONS = {
 GTFS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gtfs.csv')
 _GTFS_CACHE = None  # Global cache for performance
 
-
 def ensure_gtfs(force=False):
     """Generates a high-frequency, dynamic GTFS simulation."""
     global _GTFS_CACHE
@@ -347,7 +264,7 @@ def ensure_gtfs(force=False):
         with open(GTFS_FILE, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['trip_id', 'station_id', 'arrival_time', 'platform', 'direction', 'final_stop', 'line'])
-
+            
             now_base = get_ist_now()
             start_day = now_base.day
 
@@ -355,31 +272,29 @@ def ensure_gtfs(force=False):
                 for dir_type in ['Forward', 'Backward']:
                     path = stations if dir_type == 'Forward' else stations[::-1]
                     final_name = next(s['name'] for s in STATIONS_LIST if s['id'] == path[-1])
-
+                    
                     # More realistic intervals: 6 mins peak, 12 mins off-peak
                     current_trip_time = now_base.replace(hour=4, minute=0, second=0, microsecond=0)
                     trip_idx = 0
                     while current_trip_time.day == start_day and current_trip_time.hour < 23:
                         h = current_trip_time.hour
                         interval = 6 if (7 <= h <= 10 or 17 <= h <= 21) else 12
-
+                        
                         trip_id = f"{line}_{dir_type}_{trip_idx}"
                         trip_start_time = current_trip_time
-
+                        
                         # Platform Logic: Red (1,2), Blue (3,4), Green (1,2 - separate area)
                         p_base = 1 if line == 'Red' or line == 'Green' else 3
                         platform = str(p_base if dir_type == 'Forward' else p_base + 1)
 
                         for sid in path:
-                            writer.writerow(
-                                [trip_id, sid, trip_start_time.strftime('%H:%M:%S'), platform, dir_type, final_name,
-                                 line])
+                            writer.writerow([trip_id, sid, trip_start_time.strftime('%H:%M:%S'), platform, dir_type, final_name, line])
                             trip_start_time += timedelta(minutes=2)
-
+                        
                         current_trip_time += timedelta(minutes=interval)
                         trip_idx += 1
         print("GTFS Generation Complete.")
-        _GTFS_CACHE = None  # Invalidate cache
+        _GTFS_CACHE = None # Invalidate cache
 
     if _GTFS_CACHE is None:
         try:
@@ -387,19 +302,16 @@ def ensure_gtfs(force=False):
                 _GTFS_CACHE = list(csv.DictReader(f))
         except:
             _GTFS_CACHE = []
-
+    
     return _GTFS_CACHE
-
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
-    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    dlat, dlon = math.radians(lat2-lat1), math.radians(lon2-lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * 2 * math.asin(math.sqrt(a))
 
-
 FEEDBACK_CLOUD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'feedback_cloud.json')
-
 
 def save_feedback_to_cloud(feedback_data):
     """Saves feedback to a server-side JSON file (simulating cloud storage)."""
@@ -409,13 +321,13 @@ def save_feedback_to_cloud(feedback_data):
                 history = json.load(f)
         else:
             history = []
-
+        
         history.append(feedback_data)
-
+        
         # Limit cloud history to prevent massive file growth
         if len(history) > 1000:
             history = history[-1000:]
-
+            
         with open(FEEDBACK_CLOUD_FILE, 'w') as f:
             json.dump(history, f)
         return True
@@ -423,34 +335,31 @@ def save_feedback_to_cloud(feedback_data):
         print(f"Cloud Feed Sync Error: {e}")
         return False
 
-
 # ==========================================
 # 4. API ENDPOINTS
 # ==========================================
 
 @app.route('/')
 def index():
-    ensure_gtfs(force=False)  # Only generate if missing
-    return render_template_string(HTML_TEMPLATE,
-                                  ALL_STATIONS=STATIONS_LIST,
-                                  CONNECTIONS=CONNECTIONS,
-                                  LANDMARKS=LANDMARKS,
-                                  GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY
-                                  )
-
+    ensure_gtfs(force=False) # Only generate if missing
+    return render_template_string(HTML_TEMPLATE, 
+        ALL_STATIONS=STATIONS_LIST, 
+        CONNECTIONS=CONNECTIONS, 
+        LANDMARKS=LANDMARKS,
+        GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY
+    )
 
 @app.route('/api/feedback', methods=['POST'])
 def api_feedback():
     data = request.json
     if not data or 'message' not in data:
         return jsonify({'status': 'error', 'message': 'Invalid data'}), 400
-
+    
     # Enrich with server timestamp
     data['server_received'] = get_app_now().strftime('%Y-%m-%d %H:%M:%S')
-
+    
     success = save_feedback_to_cloud(data)
     return jsonify({'status': 'success' if success else 'failed'})
-
 
 @app.route('/api/nearest', methods=['GET', 'POST'])
 def api_nearest():
@@ -459,13 +368,13 @@ def api_nearest():
         data = request.json or {}
     else:
         data = request.args
-
+        
     dist = 0
-
+    
     if 'station_id' in data:
         matches = [s for s in STATIONS_LIST if s['id'] == data['station_id']]
         if not matches:
-            return jsonify({'error': 'Station not found'}), 404
+             return jsonify({'error': 'Station not found'}), 404
         nearest = matches[0]
         lat, lng = nearest['lat'], nearest['lng']
     else:
@@ -476,36 +385,33 @@ def api_nearest():
             lat, lng = 17.3850, 78.4867
         nearest = min(STATIONS_LIST, key=lambda s: haversine(lat, lng, s['lat'], s['lng']))
         dist = haversine(lat, lng, nearest['lat'], nearest['lng'])
-
+    
     # Urban Walking Adjustment: approx 1.35x crow-flies distance for city streets
     walk_dist = dist * 1.35
-    walking_mins = int((walk_dist / 5.0) * 60)
-
+    walking_mins = int((walk_dist / 5.0) * 60) 
+    
     # Distance Context
     range_status = "In City"
-    if dist > 50:
-        range_status = "Out of City"
-    elif dist > 15:
-        range_status = "Peripheral"
+    if dist > 50: range_status = "Out of City"
+    elif dist > 15: range_status = "Peripheral"
 
     name = nearest.get('name_alias', nearest['name'])
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
-
+    
     trips = ensure_gtfs()
     now = get_app_now()
-
+    
     # Handle simulation override
     sim_h = data.get('sim_hour')
     if sim_h:
         try:
             now = now.replace(hour=int(sim_h), minute=30, second=0)
-        except:
-            pass
-
+        except: pass
+        
     now_str = now.strftime('%H:%M:%S')
     one_hour_later = now + timedelta(hours=1)
     oh_str = one_hour_later.strftime('%H:%M:%S')
-
+    
     upcoming = []
     for row in trips:
         if row['station_id'] in matching_ids and now_str < row['arrival_time'] < oh_str:
@@ -515,19 +421,18 @@ def api_nearest():
                 arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                 diff = (arrival_dt - now).total_seconds()
                 if diff < 0: continue
-
+                
                 m, s = divmod(int(diff), 60)
                 row_copy = row.copy()
                 row_copy['eta'] = f"{m:02d}:{s:02d}"
                 upcoming.append(row_copy)
-            except:
-                continue
-
+            except: continue
+    
     # AI & Weather Data
     weather = get_live_weather(lat=lat, lng=lng)
     is_weekend = now.weekday() >= 5
     load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
-
+    
     # Landmark Logic (Simplified for brevity)
     landmarks = [{'name': 'Local Hub', 'dist': 0.5}]
     if name == 'Ameerpet':
@@ -559,17 +464,16 @@ def api_nearest():
             h, m, s = map(int, t['arrival_time'].split(':'))
             dt = now.replace(hour=h, minute=m, second=s)
             t['arrival_time'] = dt.strftime('%I:%M %p')
-        except:
-            pass
-
+        except: pass
+    
     return jsonify({
-        'station': nearest,
+        'station': nearest, 
         'distance': round(dist, 2),
         'walk_dist': round(walk_dist, 2),
         'walking_mins': walking_mins,
         'range_status': range_status,
-        'upcoming': upcoming,
-        'load_val': load_val,
+        'upcoming': upcoming, 
+        'load_val': load_val, 
         'load_label': load_label,
         'active_trips': active_count,
         'weather': weather,
@@ -579,7 +483,6 @@ def api_nearest():
         'greeting': "Good Morning" if 5 <= now.hour < 12 else "Good Afternoon" if 12 <= now.hour < 17 else "Good Evening"
     })
 
-
 @app.route('/api/weather', methods=['POST'])
 def api_weather():
     data = request.json
@@ -587,13 +490,12 @@ def api_weather():
     weather = get_live_weather(lat=lat, lng=lng)
     return jsonify(weather)
 
-
 @app.route('/api/plan', methods=['POST'])
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
     now = get_app_now()
-
+    
     # BFS find path
     queue = [(start_id, [start_id])]
     visited = {start_id}
@@ -610,8 +512,8 @@ def api_plan():
             for line in CONNECTIONS.values():
                 if curr in line:
                     idx = line.index(curr)
-                    if idx > 0: neighbors.append(line[idx - 1])
-                    if idx < len(line) - 1: neighbors.append(line[idx + 1])
+                    if idx > 0: neighbors.append(line[idx-1])
+                    if idx < len(line)-1: neighbors.append(line[idx+1])
             c_name = next((s['name'] for s in STATIONS_LIST if s['id'] == curr), None)
             if c_name:
                 for s in STATIONS_LIST:
@@ -620,34 +522,34 @@ def api_plan():
                 if n not in visited:
                     visited.add(n)
                     queue.append((n, p + [n]))
-
+    
     sequence = [next(s for s in STATIONS_LIST if s['id'] == sid) for sid in path]
     duration = max(2, len(sequence) * 2) if sequence else 0
     total_stops = len(sequence) - 1 if len(sequence) > 1 else max(0, len(sequence))
-
+    
     # Synchronize Arrival Time with GTFS schedule
     ensure_gtfs()
     gtfs_arrival_time = None
     gtfs_boarding_time = None
     chosen_trip_id = None
-
+    
     # Track arrival time for every stop in the journey
-    stop_arrival_times = {}
-
+    stop_arrival_times = {} 
+    
     try:
         now_str = now.strftime('%H:%M:%S')
         with open(GTFS_FILE, 'r') as f:
             reader = csv.DictReader(f)
             trips = list(reader)
-
+        
         # Find the next available trip at start station
         start_id = sequence[0]['id']
         end_id = sequence[-1]['id'] if sequence else None
-
+        
         possible_trips = [t for t in trips if t['station_id'] == start_id and t['arrival_time'] > now_str]
         possible_trips.sort(key=lambda x: x['arrival_time'])
-
-        for pt in possible_trips[:5]:  # Check first 5 upcoming
+        
+        for pt in possible_trips[:5]: # Check first 5 upcoming
             trip_data = [t for t in trips if t['trip_id'] == pt['trip_id']]
             # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -657,7 +559,7 @@ def api_plan():
                     gtfs_arrival_time = destination_stop['arrival_time']
                     gtfs_boarding_time = pt['arrival_time']
                     chosen_trip_id = pt['trip_id']
-
+                    
                     # Map all stop times for this trip
                     for td in trip_data:
                         stop_arrival_times[td['station_id']] = td['arrival_time']
@@ -672,8 +574,7 @@ def api_plan():
             try:
                 h, m, s_ = map(int, s['reaching_at_raw'].split(':'))
                 s['reaching_at'] = now.replace(hour=h, minute=m, second=s_).strftime('%I:%M %p')
-            except:
-                s['reaching_at'] = s['reaching_at_raw']
+            except: s['reaching_at'] = s['reaching_at_raw']
         else:
             s['reaching_at'] = "--:--"
 
@@ -681,9 +582,9 @@ def api_plan():
     total_km = 0
     for i in range(len(sequence) - 1):
         s1 = sequence[i]
-        s2 = sequence[i + 1]
+        s2 = sequence[i+1]
         total_km += haversine(s1['lat'], s1['lng'], s2['lat'], s2['lng'])
-
+    
     # Official Fare Logic from Image
     def get_fare_from_matrix(dist):
         if dist <= 2: return 11
@@ -698,7 +599,7 @@ def api_plan():
         return 69
 
     calculated_fare = get_fare_from_matrix(total_km)
-
+    
     # Calculate more accurate duration using GTFS if available
     if gtfs_boarding_time and gtfs_arrival_time:
         try:
@@ -711,25 +612,24 @@ def api_plan():
             duration = len(sequence) * 2
     else:
         duration = len(sequence) * 2
-
+    
     weather = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
     weather_advice = " AC cooling optimized for intense heat." if weather.get('temp', 30) > 35 else \
-        " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
-            " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get(
-                'condition', '') else ""
+                     " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
+                     " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get('condition', '') else ""
 
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
     end_station_name = sequence[-1]['name']
     is_weekend = now.weekday() >= 5
     load_val, base_load_label = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
-
+    
     # NEW: Numerical Load and Peak Intensity Math
-    load_pct = 35  # Base
+    load_pct = 35 # Base
     if (7 <= now.hour <= 10 or 17 <= now.hour <= 21): load_pct += 45
     if start_station_name in ['Hitech City', 'Madhapur', 'Raidurg']: load_pct += 15
     load_pct = min(99.4, load_pct + random.uniform(-3, 3))
-
+    
     peak_intensity = 0
     if (7 <= now.hour <= 10):
         dist = abs(now.hour - 8.5)
@@ -741,11 +641,11 @@ def api_plan():
 
     # Base recommendation
     recommendation = (
-                         "Empty seats available. Very low crowd." if load_val == "Low" else \
-                             "Not too busy. You might get a seat." if load_val == "Medium" else \
-                                 "A bit busy. Stay alert." if load_val == "M-High" else \
-                                     "Very busy. Try taking the next train if possible."
-                     ) + weather_advice
+        "Empty seats available. Very low crowd." if load_val == "Low" else \
+        "Not too busy. You might get a seat." if load_val == "Medium" else \
+        "A bit busy. Stay alert." if load_val == "M-High" else \
+        "Very busy. Try taking the next train if possible."
+    ) + weather_advice
 
     # Neural Path Logic: Use Gemini
     if ai_client:
@@ -755,8 +655,7 @@ def api_plan():
             ai_rec = get_ai_insight(ai_prompt)
             if ai_rec:
                 recommendation = f"{base_load_label}. {ai_rec}"
-        except:
-            pass
+        except: pass
 
     # INTERCHANGE & GUIDE LOGIC
     guides = []
@@ -764,34 +663,33 @@ def api_plan():
 
     for i in range(len(path) - 1):
         s1 = next(s for s in STATIONS_LIST if s['id'] == path[i])
-        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i + 1])
+        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i+1])
         name1 = s1.get('name_alias', s1['name'])
         name2 = s2.get('name_alias', s2['name'])
-
+        
         if name1 == name2 and s1['id'] != s2['id']:
-            next_sid = path[i + 2] if i + 2 < len(path) else None
+            next_sid = path[i+2] if i+2 < len(path) else None
             platform = "?"
             guide = f"Transfer at {name1}"
-
+            
             # Connection Analytics
             reaching_at_raw = reaching_times_map.get(s1['id'])
             connecting_trains = []
             reaching_at_display = "--:--"
-
+            
             if reaching_at_raw:
                 try:
                     rh, rm, rs = map(int, reaching_at_raw.split(':'))
                     reach_dt = now.replace(hour=rh, minute=rm, second=rs, microsecond=0)
                     reaching_at_display = reach_dt.strftime('%I:%M %p')
-
+                    
                     # Next 1 hour from reaching
                     reach_plus_hour = reach_dt + timedelta(hours=1)
                     rph_str = reach_plus_hour.strftime('%H:%M:%S')
-
+                    
                     # Find other lines at this station
-                    other_ids = [s['id'] for s in STATIONS_LIST if
-                                 (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
-
+                    other_ids = [s['id'] for s in STATIONS_LIST if (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
+                    
                     for row in trips:
                         if row['station_id'] in other_ids and reaching_at_raw < row['arrival_time'] < rph_str:
                             t_copy = row.copy()
@@ -801,65 +699,57 @@ def api_plan():
                             t_copy['wait_mins'] = int((t_dt - reach_dt).total_seconds() // 60)
                             connecting_trains.append(t_copy)
                             if len(connecting_trains) >= 3: break
-                except:
-                    pass
+                except: pass
 
             if next_sid:
                 next_s = next(s for s in STATIONS_LIST if s['id'] == next_sid)
                 if name1 == 'Ameerpet':
                     if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R', ''))
+                        idx = int(next_s['id'].replace('R',''))
                         platform = "1 (Towards LB Nagar)" if idx > 11 else "2 (Towards Miyapur)"
-                        if s1[
-                            'line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
+                        if s1['line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
                     elif next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B', ''))
+                        idx = int(next_s['id'].replace('B',''))
                         platform = "3 (Towards Nagole)" if idx > 8 else "4 (Towards Raidurg)"
-                        if s1[
-                            'line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
+                        if s1['line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
                 elif name1 == 'MGBS':
                     if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R', ''))
+                        idx = int(next_s['id'].replace('R',''))
                         platform = "1 (Towards LB Nagar)" if idx > 20 else "2 (Towards Miyapur)"
-                        if s1[
-                            'line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
+                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
                     elif next_s['line'] == 'Green':
                         platform = "3 (Towards JBS Parade Grounds)"
-                        if s1[
-                            'line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
+                        if s1['line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
                 elif name1 == 'Parade Ground':
                     if next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B', ''))
+                        idx = int(next_s['id'].replace('B',''))
                         platform = "3 (Towards Nagole)" if idx > 13 else "4 (Towards Raidurg)"
-                        if s1[
-                            'line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
+                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
                     elif next_s['line'] == 'Green':
-                        idx = int(next_s['id'].replace('G', ''))
+                        idx = int(next_s['id'].replace('G',''))
                         platform = "1 (Towards MGBS)" if idx > 3 else "2 (Towards JBS Parade Grounds)"
-                        if s1[
-                            'line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
-
+                        if s1['line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
+            
             guides.append({
-                'station': name1,
-                'platform': platform,
-                'text': guide,
+                'station': name1, 
+                'platform': platform, 
+                'text': guide, 
                 'reaching_at': reaching_at_display,
                 'connections': connecting_trains
             })
 
     # PROJECTION METRICS
     is_peak_val = "Peak Hour" if (7 <= now.hour <= 10 or 17 <= now.hour <= 21) else "Off-Peak"
-    is_it_hub_val = "High" if any(
-        n in [s['name'] for s in sequence] for n in ['Hitech City', 'Raidurg', 'Madhapur']) else "Normal"
-
+    is_it_hub_val = "High" if any(n in [s['name'] for s in sequence] for n in ['Hitech City', 'Raidurg', 'Madhapur']) else "Normal"
+    
     # Environmental Analytics
-    co2_saved = round(total_km * 0.12, 2)  # kg CO2
-    calories = int(total_km * 12 + len(guides) * 25)  # Estimated effort
+    co2_saved = round(total_km * 0.12, 2) # kg CO2
+    calories = int(total_km * 12 + len(guides) * 25) # Estimated effort
     trees_saved = round(total_km * 0.05, 3)
     one_hour_later = now + timedelta(hours=1)
     now_str = now.strftime('%H:%M:%S')
     oh_str = one_hour_later.strftime('%H:%M:%S')
-
+    
     upcoming_hour = []
     for row in trips:
         if row['station_id'] == start_id and now_str < row['arrival_time'] < oh_str:
@@ -869,7 +759,7 @@ def api_plan():
                 arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                 diff = (arrival_dt - now).total_seconds()
                 row_copy['eta'] = f"{int(diff // 60):02d}:{int(diff % 60):02d}"
-
+                
                 # Calculate estimated reach time for this specific trip
                 trip_data = [t for t in trips if t['trip_id'] == row['trip_id']]
                 dest_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -882,8 +772,7 @@ def api_plan():
                     row_copy['est_reach'] = (arrival_dt + timedelta(minutes=duration)).strftime('%I:%M %p')
 
                 upcoming_hour.append(row_copy)
-            except:
-                continue
+            except: continue
             if len(upcoming_hour) >= 8: break
 
     # Convert boarding & arrival to 12-hour format
@@ -909,8 +798,7 @@ def api_plan():
         try:
             h, m, s = map(int, u['arrival_time'].split(':'))
             u['arrival_time'] = now.replace(hour=h, minute=m, second=s).strftime('%I:%M %p')
-        except:
-            pass
+        except: pass
 
     return jsonify({
         'sequence': sequence,
@@ -937,15 +825,14 @@ def api_plan():
         }
     })
 
-
 @app.route('/api/live-map')
 def api_live_map():
     trips = ensure_gtfs()
     now_dt = get_app_now()
     now_str = now_dt.strftime('%H:%M:%S')
-
+    
     active_trains = []
-
+    
     # Read trips and group by trip_id
     trips_by_id = {}
     for row in trips:
@@ -953,28 +840,28 @@ def api_live_map():
         if tid not in trips_by_id:
             trips_by_id[tid] = []
         trips_by_id[tid].append(row)
-
+    
     for tid, stops in trips_by_id.items():
         # Sort stops by arrival time
         stops.sort(key=lambda x: x['arrival_time'])
-
+        
         # Find if train is currently between two stops
         for i in range(len(stops) - 1):
             s1 = stops[i]
-            s2 = stops[i + 1]
-
+            s2 = stops[i+1]
+            
             if s1['arrival_time'] <= now_str < s2['arrival_time']:
                 # Calculate progress
                 try:
                     t1_parts = list(map(int, s1['arrival_time'].split(':')))
                     t2_parts = list(map(int, s2['arrival_time'].split(':')))
-
+                    
                     t1 = now_dt.replace(hour=t1_parts[0], minute=t1_parts[1], second=t1_parts[2])
                     t2 = now_dt.replace(hour=t2_parts[0], minute=t2_parts[1], second=t2_parts[2])
-
+                    
                     total_duration = (t2 - t1).total_seconds()
                     elapsed = (now_dt - t1).total_seconds()
-
+                    
                     progress = max(0, min(1, elapsed / total_duration))
 
                     # Calculate speed
@@ -984,7 +871,7 @@ def api_live_map():
                     if st1 and st2 and total_duration > 0:
                         dist = haversine(st1['lat'], st1['lng'], st2['lat'], st2['lng'])
                         speed = (dist / (total_duration / 3600.0))
-
+                    
                     active_trains.append({
                         'trip_id': tid,
                         'line': s1['line'],
@@ -997,12 +884,11 @@ def api_live_map():
                         'final_stop': s1['final_stop'],
                         'speed': round(speed, 1) if speed < 110 else 75
                     })
-                    break  # Only one segment per trip
+                    break # Only one segment per trip
                 except:
                     continue
-
+                    
     return jsonify({'trains': active_trains})
-
 
 # ==========================================
 # 5. UI TEMPLATE (UPGRADED)
@@ -1051,7 +937,7 @@ HTML_TEMPLATE = """
             box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 10px 15px -3px rgba(0,0,0,0.03);
             transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
-
+        
         .mobile-card {
             border-radius: 1.5rem;
             padding: 20px;
@@ -1063,7 +949,7 @@ HTML_TEMPLATE = """
             padding: 0 20px 140px 20px; 
             min-height: 100vh; 
         }
-
+        
         @media (max-width: 1024px) {
             .main { 
                 padding: 16px; 
@@ -1091,7 +977,7 @@ HTML_TEMPLATE = """
             box-shadow: 0 20px 50px -12px rgba(0,0,0,0.4);
             border: 1px solid rgba(255,255,255,0.08);
         }
-
+        
         .mobile-link {
             display: flex; flex-direction: column; align-items: center; gap: 4px;
             color: #64748b; padding: 12px 2px; border-radius: 32px;
@@ -1104,7 +990,7 @@ HTML_TEMPLATE = """
             font-size: 9px; font-weight: 700; text-transform: uppercase; 
             letter-spacing: 0.05em; opacity: 0.6;
         }
-
+        
         .mobile-link.active { color: white; }
         .mobile-link.active i { opacity: 1; transform: scale(1.1); }
         .mobile-link.active span { opacity: 1; }
@@ -1191,7 +1077,7 @@ HTML_TEMPLATE = """
             position: relative;
             overflow: hidden;
         }
-
+        
         .mobile-action-btn {
             background: white;
             color: #0f172a;
@@ -1233,7 +1119,7 @@ HTML_TEMPLATE = """
             box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.5);
             margin: 0 auto;
         }
-
+        
         .phone-notch {
             position: absolute;
             top: 0;
@@ -1465,7 +1351,7 @@ HTML_TEMPLATE = """
             stroke-width: 4px;
             transition: opacity 0.3s;
         }
-
+        
         .map-line-path {
             fill: none;
             stroke-linecap: round;
@@ -1614,7 +1500,7 @@ HTML_TEMPLATE = """
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
                 <!-- PRIMARY LIVE DATA -->
-                <div class="lg:col-span-8">
+                <div class="hidden lg:block lg:col-span-8">
                     <div class="glass-card bg-slate-900 border-none p-8 lg:p-12 min-h-[340px] lg:min-h-[400px] flex flex-col justify-end relative overflow-hidden group shadow-2xl shadow-blue-500/10">
                         <div class="absolute inset-0 bg-gradient-to-br from-blue-600/30 via-transparent to-slate-900/80 z-10"></div>
                         <div class="absolute right-0 top-0 w-full h-full opacity-20 z-0">
@@ -1625,7 +1511,7 @@ HTML_TEMPLATE = """
                                 <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
                                 <span class="text-[9px] font-black uppercase tracking-[0.3em] text-blue-400">Live Updates Active</span>
                             </div>
-
+                            
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12 items-end">
                                 <div>
                                     <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Nearest Station</h4>
@@ -1646,7 +1532,7 @@ HTML_TEMPLATE = """
                 <div class="lg:col-span-4">
                     <div class="glass-card h-full border-none bg-white p-8 relative overflow-hidden shadow-2xl shadow-slate-200/40 group">
                         <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100"></div>
-
+                        
                         <div class="relative z-10 h-full flex flex-col">
                             <div class="flex justify-between items-start mb-8">
                                 <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Nearest Metro Station</h4>
@@ -1783,7 +1669,7 @@ HTML_TEMPLATE = """
                      <h4 class="text-[10px] font-black uppercase tracking-[0.4em] text-slate-300">Metro Info</h4>
                      <div class="h-[1px] flex-1 bg-slate-100"></div>
                 </div>
-
+                
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Stations</p>
@@ -1843,7 +1729,7 @@ HTML_TEMPLATE = """
                                     <div class="h-4 w-1/2 bg-slate-100 rounded animate-pulse"></div>
                                 </div>
                             </div>
-
+                            
                             <div class="space-y-4">
                                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Live Load Projection</p>
                                 <div class="bg-white border border-slate-100 p-5 rounded-3xl flex items-center justify-between">
@@ -1947,7 +1833,7 @@ HTML_TEMPLATE = """
                     <div class="h-full flex flex-col p-6 lg:p-10 overflow-hidden relative">
                         <!-- Mobile Sheet Handle -->
                         <div class="lg:hidden w-12 h-1 bg-slate-200 rounded-full mx-auto mb-8 shrink-0"></div>
-
+                        
                         <div class="absolute top-6 right-6 lg:top-8 lg:right-8 z-20">
                             <button onclick="closeOverlay()" class="p-3 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-2xl transition-colors">
                                 <i data-lucide="x" size="20"></i>
@@ -1981,7 +1867,7 @@ HTML_TEMPLATE = """
                                 </h5>
                                 <div id="ov-amenities" class="grid grid-cols-2 gap-3"></div>
                             </div>
-
+                            
                             <!-- Real-time Departures Section -->
                             <div>
                                 <h5 class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-6 flex items-center gap-2">
@@ -2013,7 +1899,7 @@ HTML_TEMPLATE = """
                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Optimized Metro Route</p>
                    </div>
                 </div>
-
+                
                 <div id="planner-input-area" class="glass-card border-none bg-white p-6 lg:p-12 relative overflow-hidden mb-8 !rounded-[2.5rem]">
                     <div class="grid grid-cols-1 gap-6 relative z-10">
                         <div class="space-y-3">
@@ -2257,9 +2143,9 @@ HTML_TEMPLATE = """
                 <div class="lg:col-span-5">
                     <div class="glass-card border-none shadow-2xl bg-white p-10 relative overflow-hidden group">
                         <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100/50"></div>
-
+                        
                         <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-10 relative z-10">Feedback Form</h4>
-
+                        
                         <div class="space-y-8 relative z-10">
                             <div class="space-y-3">
                                 <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sentiment Rating</label>
@@ -2315,7 +2201,7 @@ HTML_TEMPLATE = """
         let trainStates = new Map(); 
         let syncSuccessOnce = false;
         window.shouldCenterOnNextFix = true;
-
+        
         let mapViewport = { x: 0, y: 0, scale: 1 };
         let isDragging = false;
         let lastMousePos = { x: 0, y: 0 };
@@ -2337,7 +2223,7 @@ HTML_TEMPLATE = """
             if (viewportGroup) {
                 viewportGroup.setAttribute('transform', `translate(${mapViewport.x}, ${mapViewport.y}) scale(${mapViewport.scale})`);
             }
-
+            
             const labels = document.querySelectorAll('.station-label-custom');
             labels.forEach(l => {
                 l.style.opacity = mapViewport.scale > 0.8 ? '1' : '0.2';
@@ -2398,14 +2284,14 @@ HTML_TEMPLATE = """
                 const redLeft = s.line === 'Red' && ['R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22'].includes(s.id);
                 // B12 Prakash Nagar: User wants it on the "other side". If blueLeft is true (default left), we move it to right.
                 const onLeft = (blueLeft || redLeft) && s.id !== 'B12'; 
-
+                
                 const lx = pt.x + (onLeft ? -12 : 12);
                 const ly = pt.y + 4;
-
+                
                 label.setAttribute("x", lx);
                 label.setAttribute("y", ly);
                 if (onLeft) label.setAttribute("text-anchor", "end");
-
+                
                 // Specific rotations
                 if (s.id === 'B11') { // Rasoolpura
                     label.setAttribute("transform", `rotate(20, ${lx}, ${ly})`);
@@ -2414,7 +2300,7 @@ HTML_TEMPLATE = """
                 } else if (s.id === 'B12') { // Prakash Nagar
                     label.setAttribute("transform", `rotate(-20, ${lx}, ${ly})`);
                 }
-
+                
                 label.setAttribute("class", "station-label-custom");
                 label.textContent = s.name;
                 labelsGroup.appendChild(label);
@@ -2475,7 +2361,7 @@ HTML_TEMPLATE = """
 
             const trainsGroup = document.getElementById('map-trains');
             const now = Date.now();
-
+            
             trainStates.forEach((t, tid) => {
                 const s1 = stations.find(s => s.id === t.from_id);
                 const s2 = stations.find(s => s.id === t.to_id);
@@ -2489,7 +2375,7 @@ HTML_TEMPLATE = """
 
                 const x = pt1.x + (pt2.x - pt1.x) * progress;
                 const y = pt1.y + (pt2.y - pt1.y) * progress;
-
+                
                 let trainEl = document.getElementById(`train-${tid}`);
                 if (!trainEl) {
                     const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#22c55e';
@@ -2497,7 +2383,7 @@ HTML_TEMPLATE = """
                     trainEl.setAttribute("id", `train-${tid}`);
                     trainEl.setAttribute("class", "train-unit");
                     trainEl.onclick = () => handleTrainInteraction(t, s2);
-
+                    
                     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                     rect.setAttribute("width", "20");
                     rect.setAttribute("height", "10");
@@ -2507,13 +2393,13 @@ HTML_TEMPLATE = """
                     rect.setAttribute("fill", "#0f172a");
                     rect.setAttribute("stroke", "#ffffff");
                     rect.setAttribute("stroke-width", "2");
-
+                    
                     const indicator = document.createElementNS("http://www.w3.org/2000/svg", "circle");
                     indicator.setAttribute("cx", "6");
                     indicator.setAttribute("cy", "0");
                     indicator.setAttribute("r", "2");
                     indicator.setAttribute("fill", color);
-
+                    
                     trainEl.appendChild(rect);
                     trainEl.appendChild(indicator);
                     trainsGroup.appendChild(trainEl);
@@ -2548,14 +2434,14 @@ HTML_TEMPLATE = """
         async function handleTrainInteraction(t, nextStop) {
             const overlay = document.getElementById('map-overlay');
             overlay.classList.add('active');
-
+            
             document.getElementById('ov-name').innerText = `Train ${t.trip_id}`;
             document.getElementById('ov-weather').classList.add('hidden');
-
+            
             const ovLine = document.getElementById('ov-line');
             ovLine.innerText = t.line + ' LINE';
             ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (t.line === 'Red' ? 'bg-red-50 text-red-600' : t.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
-
+            
             const oldBtn = document.getElementById('ov-inter-btn');
             if (oldBtn) oldBtn.remove();
 
@@ -2583,12 +2469,12 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             `;
-
+            
             const trainsEl = document.getElementById('ov-trains');
             trainsEl.innerHTML = '<p class="text-[10px] font-bold text-slate-400 italic">Tracking current unit metrics...</p>';
-
+            
             lucide.createIcons();
-
+            
             // Re-center on train position (estimated)
             const s1 = stations.find(s => s.id === t.from_id);
             const s2 = stations.find(s => s.id === t.to_id);
@@ -2613,16 +2499,16 @@ HTML_TEMPLATE = """
         async function handleStationInteraction(s) {
             const overlay = document.getElementById('map-overlay');
             overlay.classList.add('active');
-
+            
             document.getElementById('ov-name').innerText = s.name;
             document.getElementById('ov-weather').classList.add('hidden');
-
+            
             const ovLine = document.getElementById('ov-line');
             ovLine.innerText = s.line + ' LINE';
             ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (s.line === 'Red' ? 'bg-red-50 text-red-600' : s.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
-
+            
             centerMapOn(s.lat, s.lng);
-
+            
             // Description Rendering
             const descCont = document.getElementById('ov-desc-container');
             const descEl = document.getElementById('ov-description');
@@ -2659,10 +2545,10 @@ HTML_TEMPLATE = """
                 wEl.classList.remove('hidden');
                 lucide.createIcons();
             } catch (e) { console.warn("Station weather fetch failed"); }
-
+            
             const am = document.getElementById('ov-amenities'); am.innerHTML = '';
             const amenities = s.amenities || ['Express Check-in', 'Tactile Pathing', 'HD Surveillance', 'Emergency Ops Center'];
-
+            
             amenities.forEach(a => {
                 const dev = document.createElement('div'); 
                 dev.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:border-blue-200 group';
@@ -2689,7 +2575,7 @@ HTML_TEMPLATE = """
 
             const trainCont = document.getElementById('ov-trains');
             trainCont.innerHTML = `<div class="py-10 flex flex-col items-center gap-4 text-slate-300"><div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p class="text-[9px] font-black uppercase tracking-widest">Loading departures...</p></div>`;
-
+            
             try {
                 const res = await fetch('/api/nearest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ station_id: s.id }) });
                 const data = await res.json();
@@ -2717,7 +2603,7 @@ HTML_TEMPLATE = """
             if (lastUserLoc) {
                 const latMin = 17.0, latMax = 17.7, lngMin = 78.1, lngMax = 78.9;
                 const isOutOfHyd = lastUserLoc.lat < latMin || lastUserLoc.lat > latMax || lastUserLoc.lng < lngMin || lastUserLoc.lng > lngMax;
-
+                
                 let targetLoc = lastUserLoc;
                 if (isOutOfHyd && window.lastNearestStation) {
                     targetLoc = window.lastNearestStation;
@@ -2726,13 +2612,13 @@ HTML_TEMPLATE = """
                 }
 
                 const pt = project(targetLoc.lat, targetLoc.lng);
-
+                
                 // Centering logic: target point (pt.x, pt.y) should be at (500, 500) in coordinate space
                 // Viewport translation: newX = (canvasWidth/2) - (pt.x * scale)
                 mapViewport.scale = 2.0; 
                 mapViewport.x = 500 - (pt.x * mapViewport.scale);
                 mapViewport.y = 500 - (pt.y * mapViewport.scale);
-
+                
                 applyMapTransform();
                 updateSVGUserPin(lastUserLoc.lat, lastUserLoc.lng);
             } else {
@@ -2775,7 +2661,7 @@ HTML_TEMPLATE = """
                 const dEl = document.getElementById('weather-detail');
                 if (vEl) vEl.innerText = (data.temp || '--') + '°C, ' + (data.condition || '--');
                 if (dEl) dEl.innerText = `Humidity: ${data.humidity || 0}% | Visibility: ${(data.visibility || 0).toFixed(1)}km`;
-
+                
                 const weatherRec = (data.temp > 35) ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
                                    (data.condition || '').includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
                                    "System is ready. Enjoy your commute across the network.";
@@ -2789,9 +2675,9 @@ HTML_TEMPLATE = """
             const saved = JSON.parse(localStorage.getItem('metro_saved_routes') || '[]');
             const container = document.getElementById('saved-routes-list');
             const section = document.getElementById('saved-routes-section');
-
+            
             if (!container) return;
-
+            
             if (saved.length > 0) {
                 section.classList.remove('hidden');
                 container.innerHTML = '';
@@ -2804,7 +2690,7 @@ HTML_TEMPLATE = """
                         showTab('routes');
                         planJourney();
                     };
-
+                    
                     card.innerHTML = `
                         <div class="flex items-center gap-5">
                             <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
@@ -2829,11 +2715,11 @@ HTML_TEMPLATE = """
 
         function saveCurrentVector() {
             if (!currentPlannedRoute) return;
-
+            
             const saved = JSON.parse(localStorage.getItem('metro_saved_routes') || '[]');
             const startId = document.getElementById('start-st').value;
             const endId = document.getElementById('end-st').value;
-
+            
             if (saved.some(v => v.from === startId && v.to === endId)) {
                 alert("Route already saved.");
                 return;
@@ -2858,17 +2744,17 @@ HTML_TEMPLATE = """
 
             saved.push(route);
             localStorage.setItem('metro_saved_routes', JSON.stringify(saved));
-
+            
             const btn = document.getElementById('save-route-btn');
             btn.innerHTML = '<i data-lucide="check" size="14"></i> Route Saved';
             btn.classList.replace('bg-slate-900', 'bg-emerald-500');
-
+            
             setTimeout(() => {
                 btn.innerHTML = '<i data-lucide="star" size="14"></i> Save Route';
                 btn.classList.replace('bg-emerald-500', 'bg-slate-900');
                 lucide.createIcons();
             }, 2000);
-
+            
             loadSavedVectors();
             lucide.createIcons();
         }
@@ -2885,7 +2771,7 @@ HTML_TEMPLATE = """
             const startName = document.getElementById('start-st').options[document.getElementById('start-st').selectedIndex].text;
             const endName = document.getElementById('end-st').options[document.getElementById('end-st').selectedIndex].text;
             const msg = `⚡ Commuting via HydMetro: ${startName} to ${endName}. Guide found at ₹${lastCalculatedFare}!`;
-
+            
             if (navigator.share) {
                 navigator.share({ title: 'HydMetro Route', text: msg, url: window.location.href });
             } else {
@@ -2905,9 +2791,9 @@ HTML_TEMPLATE = """
             const history = JSON.parse(localStorage.getItem('metro_feedback') || '[]');
             const container = document.getElementById('feedback-history');
             const empty = document.getElementById('feedback-empty');
-
+            
             if (!container) return;
-
+            
             container.innerHTML = '';
             if (history.length > 0) {
                 if (empty) empty.classList.add('hidden');
@@ -2939,7 +2825,7 @@ HTML_TEMPLATE = """
         async function submitFeedback() {
             const msg = document.getElementById('feedback-msg').value.trim();
             const cat = document.getElementById('feedback-cat').value;
-
+            
             if (!msg) {
                 alert("The neural matrix requires data. Please type a message.");
                 return;
@@ -2972,17 +2858,17 @@ HTML_TEMPLATE = """
             // Clear Input
             document.getElementById('feedback-msg').value = '';
             setSentiment('neutral');
-
+            
             // UI Update
             loadFeedback();
-
+            
             // Success Effect
             const btn = document.querySelector('[onclick="submitFeedback()"]');
             const oldHtml = btn.innerHTML;
             btn.classList.replace('bg-slate-900', 'bg-emerald-500');
             btn.innerHTML = '<i data-lucide="shield-check" size="14"></i> Transmission Complete';
             lucide.createIcons();
-
+            
             setTimeout(() => {
                 btn.classList.replace('bg-emerald-500', 'bg-slate-900');
                 btn.innerHTML = oldHtml;
@@ -2996,7 +2882,7 @@ HTML_TEMPLATE = """
             const sel = document.getElementById('upi-selection');
             const btn = document.getElementById('pay-btn-main');
             const isHidden = sel.classList.contains('hidden');
-
+            
             sel.classList.toggle('hidden');
             btn.innerHTML = isHidden ? '<i data-lucide="chevron-up" size="14"></i> Cancel Selection' : '<i data-lucide="smartphone" size="14"></i> Select Payment App';
             lucide.createIcons();
@@ -3005,7 +2891,7 @@ HTML_TEMPLATE = """
         function payWithUPI(appName) {
             const startNode = document.getElementById('start-st');
             const endNode = document.getElementById('end-st');
-
+            
             if (!startNode.value || !endNode.value) {
                 alert("Please simulate a route in the Path Architect first to generate trip data.");
                 showTab('routes');
@@ -3015,7 +2901,7 @@ HTML_TEMPLATE = """
             const amount = lastCalculatedFare;
             const fromNameFull = startNode.options[startNode.selectedIndex].text;
             const toNameFull = endNode.options[endNode.selectedIndex].text;
-
+            
             // Clean names (remove icons/suffixes)
             const clean = (str) => {
                 let s = str.split(' ').slice(1).join(' '); // Skip emoji
@@ -3030,7 +2916,7 @@ HTML_TEMPLATE = """
                     <p class="text-[8px] font-bold text-white/40 mt-2">Connecting to Secure Gateway</p>
                 </div>
             `;
-
+            
             setTimeout(() => {
                 upiSelection.innerHTML = `
                     <div class="col-span-2 flex flex-col items-center justify-center p-6 bg-emerald-500 rounded-3xl animate-in zoom-in duration-500">
@@ -3040,7 +2926,7 @@ HTML_TEMPLATE = """
                     </div>
                 `;
                 lucide.createIcons();
-
+                
                 setTimeout(() => {
                     generateTicket({
                         from: clean(fromNameFull),
@@ -3067,7 +2953,7 @@ HTML_TEMPLATE = """
 
             showTab('tickets');
             renderTickets();
-
+            
             // Animation effect
             const container = document.getElementById('active-ticket-container');
             container.classList.add('animate-bounce');
@@ -3128,7 +3014,7 @@ HTML_TEMPLATE = """
                             </div>
                         </div>
                     </div>
-
+                    
                     <div class="pass-cutout pass-cutout-left"></div>
                     <div class="pass-cutout pass-cutout-right"></div>
                     <div class="pass-divider"></div>
@@ -3152,7 +3038,7 @@ HTML_TEMPLATE = """
                 `;
                 activeContainer.appendChild(card);
 
-
+                
                 // Generate QR
                 new QRCode(document.getElementById("ticket-qr"), {
                     text: JSON.stringify({ id: activeTicket.id, u: "AIS-HYD", auth: "NEURAL-PRO" }),
@@ -3231,7 +3117,7 @@ HTML_TEMPLATE = """
                         <div style="width: 16px; height: 16px; background: #06b6d4; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 20px #06b6d4; z-index: 2; animation: pulse-dot 2s infinite;"></div>
                     </div>
                 `;
-
+                
                 // Add keyframes if not exists
                 if (!document.getElementById('user-pulse-style')) {
                     const style = document.createElement('style');
@@ -3259,7 +3145,7 @@ HTML_TEMPLATE = """
             } else {
                 userLocationMarker.position = { lat, lng };
             }
-
+            
             const locText = document.getElementById('user-location-text');
             if (locText && (locText.innerText.includes('Finding') || locText.innerText.includes('Syncing'))) {
                 locText.innerText = "Handshaking with Satellites...";
@@ -3270,7 +3156,7 @@ HTML_TEMPLATE = """
             const pt = project(lat, lng);
             let userPin = document.getElementById('user-location-pin');
             const viewport = document.getElementById('map-viewport');
-
+            
             if (!userPin && viewport) {
                 userPin = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 userPin.setAttribute("id", "user-location-pin");
@@ -3286,10 +3172,10 @@ HTML_TEMPLATE = """
                 `;
                 viewport.appendChild(userPin);
             }
-
+            
             if (userPin) {
                 userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
-
+                
                 if (window.shouldCenterOnNextFix) {
                     locateMeOnMap(); // Recursive call but with lastUserLoc present
                     window.shouldCenterOnNextFix = false;
@@ -3310,13 +3196,13 @@ HTML_TEMPLATE = """
             tabState = id;
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.mobile-link').forEach(l => l.classList.remove('active'));
-
+            
             const contentTab = document.getElementById('tab-'+id);
             const mobileTab = document.getElementById('mob-'+id);
-
+            
             if (contentTab) contentTab.classList.add('active');
             if (mobileTab) mobileTab.classList.add('active');
-
+            
             if(id === 'map') {
                 if (!document.getElementById('map-lines').children.length) {
                     initCustomMetroMap();
@@ -3349,10 +3235,10 @@ HTML_TEMPLATE = """
         function renderStationsDirectory() {
             const grid = document.getElementById('stations-grid');
             if (!grid) return;
-
+            
             const subtitle = document.getElementById('stations-dir-subtitle');
             const searchQ = document.getElementById('dir-search').value.toLowerCase().trim();
-
+            
             if (currentDirFilter === 'Blue' && !searchQ) {
                 subtitle.innerText = "BLUE LINE (Raidurg → Nagole) — Full details with services";
                 subtitle.className = "text-[10px] font-black text-blue-500 uppercase tracking-[0.3em]";
@@ -3368,12 +3254,12 @@ HTML_TEMPLATE = """
             }
 
             grid.innerHTML = '';
-
+            
             let filteredSt = currentDirFilter === 'All' ? stations : stations.filter(s => s.line === currentDirFilter);
             if (searchQ) {
                 filteredSt = filteredSt.filter(s => s.name.toLowerCase().includes(searchQ) || s.id.toLowerCase().includes(searchQ));
             }
-
+            
             if (filteredSt.length === 0) {
                 grid.innerHTML = '<div class="col-span-full py-32 text-center flex flex-col items-center justify-center text-slate-300"><i data-lucide="search-x" size="48" class="mb-4 opacity-10"></i><p class="text-[10px] font-black uppercase tracking-widest opacity-40">No stations detected in this sector</p></div>';
                 lucide.createIcons();
@@ -3390,11 +3276,11 @@ HTML_TEMPLATE = """
                     showTab('map');
                     handleStationInteraction(s);
                 };
-
+                
                 const lineColor = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
                 const lineText = s.line === 'Red' ? 'text-red-500' : s.line === 'Blue' ? 'text-blue-500' : 'text-green-500';
                 const isInter = interchanges.includes(s.name);
-
+                
                 card.innerHTML = `
                     <div class="flex justify-between items-start">
                         <div class="w-10 h-10 ${lineColor} rounded-2xl flex items-center justify-center text-white shadow-lg shadow-current/20 group-hover:scale-110 transition-transform">
@@ -3454,17 +3340,17 @@ HTML_TEMPLATE = """
                     const simInd = document.getElementById('sim-indicator');
                     if (simInd) simInd.remove();
                 }
-
+                
                 let options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
                 let timeStr = now.toLocaleTimeString('en-US', options);
-
+                
                 // Be extra careful with splitting as some locales or browser settings might vary
                 let parts = timeStr.split(/[\s\u00A0\u202F]/); // Handle various space types
-
+                
                 const clockEl = document.getElementById('clock');
                 const ampmEl = document.getElementById('ampm');
                 const dateEl = document.getElementById('date');
-
+                
                 if (clockEl) {
                     if (parts.length >= 2) {
                         clockEl.innerText = parts[0];
@@ -3475,11 +3361,11 @@ HTML_TEMPLATE = """
                         if (ampmEl) ampmEl.innerText = now.getHours() >= 12 ? 'PM' : 'AM';
                     }
                 }
-
+                
                 if (dateEl) {
                     dateEl.innerText = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
                 }
-
+                
                 const mapClock = document.getElementById('map-clock');
                 if (mapClock) mapClock.innerText = timeStr;
             } catch (e) {
@@ -3581,7 +3467,7 @@ HTML_TEMPLATE = """
         function showMapSuggestions(val) {
             const sugg = document.getElementById('map-suggestions');
             const q = val.toLowerCase().trim();
-
+            
             if (q.length < 1) {
                 sugg.classList.add('hidden');
                 return;
@@ -3622,7 +3508,7 @@ HTML_TEMPLATE = """
         function filterMapStations(query) {
             const q = query.toLowerCase().trim();
             const clearBtn = document.getElementById('search-clear');
-
+            
             if (q === '') {
                 clearBtn.classList.add('hidden');
             } else {
@@ -3652,10 +3538,10 @@ HTML_TEMPLATE = """
         async function updateBoardData(lat, lng, stationId = null) {
             try {
                 if (!lat && !lng && !stationId) return;
-
+                
                 const boardLoading = document.getElementById('board-loading');
                 const boardContent = document.getElementById('board-content');
-
+                
                 // Show loading only if we haven't succeeded yet
                 if (boardLoading && !syncSuccessOnce) {
                     boardLoading.classList.remove('hidden');
@@ -3665,7 +3551,7 @@ HTML_TEMPLATE = """
                     const el = document.getElementById(id);
                     if (el) el.innerText = text;
                 };
-
+                
                 if (lat && lng) {
                     updateUserPin(lat, lng);
                     updateSVGUserPin(lat, lng);
@@ -3677,10 +3563,10 @@ HTML_TEMPLATE = """
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify(body) 
                 });
-
+                
                 if (!res.ok) throw new Error("API Offline");
                 const data = await res.json();
-
+                
                 syncSuccessOnce = true;
                 window.lastNearestStation = data.station;
                 lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
@@ -3691,7 +3577,7 @@ HTML_TEMPLATE = """
                 setElText('near-name-mob-2', data.station.name);
                 setElText('near-dist', data.distance + ' km (Crow-flies)');
                 setElText('near-dist-mob-2', data.distance + ' km away');
-
+                
                 let locDisplay = data.station.name + ', ' + data.distance + ' km';
                 if (data.range_status === 'Out of City') locDisplay = data.station.name + ' (Inter-city)';
                 setElText('user-location-text', locDisplay);
@@ -3706,10 +3592,10 @@ HTML_TEMPLATE = """
                     }
                     walkContainer.classList.remove('hidden');
                 }
-
+                
                 // Update System Status
                 setElText('live-train-count', data.active_trips + ' Trains Active');
-
+                
                 const ridershipEl = document.getElementById('ridership-val');
                 if (ridershipEl) {
                     const estRiders = (data.active_trips * 450) + Math.floor(Math.random() * 200);
@@ -3723,7 +3609,7 @@ HTML_TEMPLATE = """
                 let statusLine = `${data.walking_mins} min walk | ${data.load_label}`;
                 if (data.range_status === 'Out of City') statusLine = `Inter-city Location | ${data.distance}km away`;
                 else if (data.range_status === 'Peripheral') statusLine = `Peripheral Area | ${data.distance}km away`;
-
+                
                 const netStatusEl = document.getElementById('near-dist-status');
                 if (netStatusEl) {
                     if (gpsFallbackMsg) {
@@ -3734,30 +3620,30 @@ HTML_TEMPLATE = """
                         netStatusEl.classList.remove('text-amber-400');
                     }
                 }
-
+                
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
-
+                
                 const mapJumpBtn = document.getElementById('map-jump-btn');
                 if (mapJumpBtn) mapJumpBtn.classList.remove('hidden');
 
                 setElText('near-metro-live', data.station.name);
                 setElText('near-metro-mob', 'Near ' + data.station.name + ' Station');
                 setElText('active-count', data.active_trips);
-
+                
                 // Update Network Stats
                 setElText('stat-stations', data.stations_total || '57');
                 setElText('stat-length', (data.line_length || '72') + ' km');
                 setElText('stat-riders', (data.daily_riders || '420k') + '+');
                 setElText('stat-speed', (data.top_speed || '80') + ' km/h');
-
+                
                 const loadStatusEl = document.getElementById('load-status');
                 if (loadStatusEl) {
                     loadStatusEl.innerText = data.load_label;
                     loadStatusEl.className = 'px-3 py-1 bg-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/10 ' + 
                                             (data.load_val === 'High' ? 'text-red-400' : 'text-emerald-400');
                 }
-
+                
                 setElText('greeting', data.greeting + '!');
                 setElText('greeting-mob', data.greeting + '!');
                 const weatherVal = document.getElementById('weather-val');
@@ -3765,13 +3651,13 @@ HTML_TEMPLATE = """
                     weatherVal.innerText = data.weather.temp + '°C, ' + data.weather.condition;
                     weatherVal.classList.remove('animate-pulse');
                 }
-
+                
                 // Sync selector if in auto-mode
                 const selector = document.getElementById('board-station-selector');
                 if (!stationId) {
                     selector.value = data.station.id;
                 }
-
+                
                 const weatherDetail = document.getElementById('weather-detail');
                 if (weatherDetail) {
                     weatherDetail.innerText = `Humidity: ${data.weather.humidity}% | Visibility: ${data.weather.visibility.toFixed(1)}km`;
@@ -3796,7 +3682,7 @@ HTML_TEMPLATE = """
                 });
                 const rows = document.getElementById('board-rows'); rows.innerHTML = '';
                 document.getElementById('board-loading').classList.add('hidden');
-
+                
                 if (data.upcoming.length === 0) {
                     rows.innerHTML = '<tr><td colspan="4" class="py-16 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest bg-slate-50/50 rounded-2xl">Signal Lost. No Upcoming departures in this vector.</td></tr>';
                 }
@@ -3907,7 +3793,7 @@ HTML_TEMPLATE = """
                 userLocText.innerText = "Finding nearest station...";
                 userLocText.classList.add('animate-pulse');
             }
-
+            
             if (netStatus) netStatus.innerText = "Establishing Satellite Uplink...";
             if (nearName) nearName.innerText = "Locating...";
             if (nearDist) nearDist.innerText = "Contacting Satellites...";
@@ -3933,16 +3819,16 @@ HTML_TEMPLATE = """
                 if (userLocText) {
                     userLocText.classList.remove('animate-pulse');
                 }
-
+                
                 lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 await updateBoardData(pos.coords.latitude, pos.coords.longitude);
-
+                
                 if (status) {
                     status.innerText = "Satellite Mode: Active";
                     status.classList.remove('text-amber-500');
                     status.classList.add('text-emerald-500');
                 }
-
+                
                 if (window.locWatchId) navigator.geolocation.clearWatch(window.locWatchId);
                 window.locWatchId = navigator.geolocation.watchPosition(
                     p => {
@@ -3958,7 +3844,7 @@ HTML_TEMPLATE = """
                 let errorMsg = "GPS Signal Fragmented";
                 if (err.code === 1) errorMsg = "GPS Permission Denied";
                 if (err.message === "METRO_GPS_TIMEOUT" || err.code === 3) errorMsg = "GPS Timeout Happened";
-
+                
                 gpsFallbackMsg = errorMsg + " | Fallback Mode";
 
                 if (status) {
@@ -4039,7 +3925,7 @@ HTML_TEMPLATE = """
             const btn = document.getElementById('plan-btn');
             const btnText = document.getElementById('btn-text');
             const loader = document.getElementById('btn-loader');
-
+            
             btn.disabled = true;
             btnText.classList.add('opacity-0');
             loader.classList.remove('hidden');
@@ -4050,19 +3936,19 @@ HTML_TEMPLATE = """
 
                 const res = await fetchWithSim('/api/plan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({from: f, to: t}) });
                 const data = await res.json();
-
+                
                 currentPlannedRoute = data;
                 document.getElementById('route-output').classList.remove('hidden');
                 const emptyState = document.getElementById('route-empty');
                 if (emptyState) emptyState.classList.add('hidden');
-
+                
                 // Details
                 document.getElementById('route-dur').innerText = (data.duration || 0) + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
                 document.getElementById('route-dist-main').innerText = data.total_km;
                 document.getElementById('route-dist').innerText = data.total_km;
                 document.getElementById('route-rec').innerText = data.recommendation;
-
+                
                 // Eco Metrics
                 document.getElementById('route-co2').innerText = (data.eco.co2 || 0) + 'kg';
                 document.getElementById('route-cal').innerText = (data.eco.calories || 0);
@@ -4076,15 +3962,15 @@ HTML_TEMPLATE = """
                 loadForecast.innerText = `${loadVal}% Capacity Utilization`;
                 peakPct.innerText = `${data.peak_intensity || 0}% PK`;
                 loadBar.style.width = `${loadVal}%`;
-
+                
                 // Color bar based on load
                 loadBar.className = 'h-full transition-all duration-1000 ' + 
                                   (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
-
+                
                 lastCalculatedFare = data.fare;
-
+                
                 const seq = document.getElementById('route-seq'); seq.innerHTML = '';
-
+                
                 // Add Metrics Grid
                 const metricsDiv = document.createElement('div');
                 metricsDiv.className = "grid grid-cols-2 gap-4 mb-8 bg-slate-50 p-6 rounded-[24px] border border-slate-100";
@@ -4100,7 +3986,7 @@ HTML_TEMPLATE = """
                     guideHeader.className = "text-[11px] font-black text-blue-600 uppercase tracking-[0.2em] mb-8 mt-12 flex items-center gap-2 pl-2";
                     guideHeader.innerHTML = `<i data-lucide="smartphone" size="14"></i> Critical Interchange Vectors`;
                     seq.appendChild(guideHeader);
-
+                    
                     data.guides.forEach((g, gIdx) => {
                         const outer = document.createElement('div');
                         outer.className = "mb-12";
@@ -4143,7 +4029,7 @@ HTML_TEMPLATE = """
                                                 </div>
                                             </div>
                                         </div>
-
+                                        
                                         <div class="space-y-3">
                                             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Connecting Services</p>
                                             <div class="grid grid-cols-1 gap-2">
@@ -4219,7 +4105,7 @@ HTML_TEMPLATE = """
                         </div>`;
                     sched.appendChild(div);
                 });
-
+                
                 lucide.createIcons();
                 document.getElementById('route-output').scrollIntoView({ behavior: 'smooth' });
 
@@ -4243,11 +4129,11 @@ HTML_TEMPLATE = """
                 const select = document.getElementById(id);
                 if (!select) return;
                 select.innerHTML = '<option value="" disabled selected>Select a station...</option>';
-
+                
                 lines.forEach(line => {
                     const group = document.createElement('optgroup');
                     group.label = `${lineIcons[line]} ${line} Line Network`;
-
+                    
                     stations.filter(s => s.line === line).sort((a,b) => a.name.localeCompare(b.name)).forEach(st => {
                         const opt = document.createElement('option');
                         opt.value = st.id;
@@ -4266,7 +4152,7 @@ HTML_TEMPLATE = """
             try {
                 const res = await fetchWithSim('/api/live-map');
                 const data = await res.json();
-
+                
                 const seenIds = new Set();
                 if (data.trains) {
                     data.trains.forEach(t => {
