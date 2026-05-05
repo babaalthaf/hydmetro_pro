@@ -1725,19 +1725,19 @@ HTML_TEMPLATE = """
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Stations</p>
-                        <p class="text-2xl font-black text-slate-900 tracking-tight">57</p>
+                        <p id="stat-stations" class="text-2xl font-black text-slate-900 tracking-tight">57</p>
                     </div>
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Line Length</p>
-                        <p class="text-2xl font-black text-slate-900 tracking-tight">72 km</p>
+                        <p id="stat-length" class="text-2xl font-black text-slate-900 tracking-tight">72 km</p>
                     </div>
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Daily Riders</p>
-                        <p class="text-2xl font-black text-slate-900 tracking-tight">400k+</p>
+                        <p id="stat-riders" class="text-2xl font-black text-slate-900 tracking-tight">400k+</p>
                     </div>
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Top Speed</p>
-                        <p class="text-2xl font-black text-slate-900 tracking-tight">80 <span class="text-xs">km/h</span></p>
+                        <p id="stat-speed" class="text-2xl font-black text-slate-900 tracking-tight">80 <span class="text-xs">km/h</span></p>
                     </div>
                 </div>
             </div>
@@ -2315,7 +2315,7 @@ HTML_TEMPLATE = """
                 const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
                 const blueLeft = s.line === 'Blue' && ['B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'].includes(s.id);
                 const redLeft = s.line === 'Red' && ['R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22'].includes(s.id);
-                const onLeft = blueLeft || redLeft;
+                const onLeft = (blueLeft || redLeft) && s.id !== 'B12'; // B12 Prakash Nagar moved to right side
 
                 const lx = pt.x + (onLeft ? -12 : 12);
                 const ly = pt.y + 4;
@@ -2640,20 +2640,11 @@ HTML_TEMPLATE = """
                 mapViewport.y = 500 - (pt.y * mapViewport.scale);
 
                 applyMapTransform();
-
-                let userPin = document.getElementById('user-location-pin');
-                if (!userPin) {
-                    userPin = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                    userPin.setAttribute("id", "user-location-pin");
-                    userPin.innerHTML = `
-                        <circle cx="0" cy="0" r="12" fill="#3b82f6" fill-opacity="0.2" class="user-pin-outer"></circle>
-                        <circle cx="0" cy="0" r="5" fill="#3b82f6" stroke="white" stroke-width="2"></circle>
-                    `;
-                    document.getElementById('map-viewport').appendChild(userPin);
-                }
-                userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
+                updateSVGUserPin(lastUserLoc.lat, lastUserLoc.lng);
             } else {
-                alert("Location not acquired yet. Please wait for GPS sync.");
+                manualRefreshGeo();
+                const status = document.getElementById('satellite-status');
+                if (status) status.innerText = "Targeting User Vector...";
             }
         }
 
@@ -3622,6 +3613,12 @@ HTML_TEMPLATE = """
                 setElText('near-metro-mob', 'Near ' + data.station.name + ' Station');
                 setElText('active-count', data.active_trips);
 
+                // Update Network Stats
+                setElText('stat-stations', data.stations_total || '57');
+                setElText('stat-length', (data.line_length || '72') + ' km');
+                setElText('stat-riders', (data.daily_riders || '420k') + '+');
+                setElText('stat-speed', (data.top_speed || '80') + ' km/h');
+
                 const loadStatusEl = document.getElementById('load-status');
                 if (loadStatusEl) {
                     loadStatusEl.innerText = data.load_label;
@@ -3706,20 +3703,23 @@ HTML_TEMPLATE = """
                 if (boardLoading) {
                     boardLoading.classList.remove('hidden');
                     boardLoading.innerHTML = `
-                    <div class="flex flex-col items-center gap-4 py-8">
-                        <div class="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 shadow-inner">
-                            <i data-lucide="wifi-off" size="28"></i>
+                    <div class="flex flex-col items-center gap-6 py-12 animate-in fade-in zoom-in duration-500">
+                        <div class="w-20 h-20 bg-red-50 rounded-[40px] flex items-center justify-center text-red-500 shadow-inner relative">
+                            <div class="absolute inset-0 bg-red-400 rounded-[40px] animate-ping opacity-20"></div>
+                            <i data-lucide="wifi-off" size="32" class="relative"></i>
                         </div>
-                        <div class="text-center px-4">
-                            <p class="text-[14px] font-black text-slate-900 tracking-tight">Sync Vector Interrupted</p>
-                            <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Satellite handshake failed. Check your data connection or permissions.</p>
+                        <div class="text-center px-6">
+                            <h4 class="text-xl font-black text-slate-900 tracking-tight italic uppercase">Sync Vector Interrupted</h4>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-3 max-w-xs leading-relaxed">
+                                Satellite handshake failed. Check your data connection or terminal location permissions.
+                            </p>
                         </div>
-                        <div class="flex gap-2">
-                            <button onclick="manualRefreshGeo()" class="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl">
-                                Retry Satellite
+                        <div class="flex gap-4">
+                            <button onclick="manualRefreshGeo()" class="px-8 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-black transition-all shadow-2xl active:scale-95 flex items-center gap-2">
+                                <i data-lucide="refresh-cw" size="14"></i> Retry Sync
                             </button>
-                            <button onclick="manualStationChange('R11')" class="px-6 py-3 bg-blue-50 text-blue-600 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-blue-100">
-                                Ameerpet Hub
+                            <button onclick="manualStationChange('R11')" class="px-8 py-4 bg-blue-50 text-blue-600 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border border-blue-100 hover:bg-blue-100 transition-all active:scale-95">
+                                Select Ameerpet
                             </button>
                         </div>
                     </div>
@@ -3793,21 +3793,41 @@ HTML_TEMPLATE = """
             }
 
             try {
-                // Racing Geolocation against a 3-second timeout for immediate snappiness
+                const status = document.getElementById('satellite-status');
+                const userLocText = document.getElementById('user-location-text');
+
+                if (status) status.innerText = "Synchronizing GPS Vectors...";
+                if (userLocText) {
+                    userLocText.innerText = "Finding nearest station...";
+                    userLocText.classList.add('animate-pulse');
+                }
+
+                // Racing Geolocation against a 20-second timeout
                 const pos = await Promise.race([
                     new Promise((resolve, reject) => {
                         navigator.geolocation.getCurrentPosition(resolve, reject, { 
                             enableHighAccuracy: true, 
-                            timeout: 8000, 
-                            maximumAge: 0
+                            timeout: 20000, 
+                            maximumAge: 5000
                         });
                     }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("METRO_GPS_TIMEOUT")), 3500))
+                    new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error("METRO_GPS_TIMEOUT")), 20500);
+                    })
                 ]);
+
+                if (userLocText) {
+                    userLocText.classList.remove('animate-pulse');
+                }
 
                 lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 await updateBoardData(pos.coords.latitude, pos.coords.longitude);
-                finalizeStatus("Satellite Mode: Active", "text-emerald-500");
+
+                if (status) {
+                    status.innerText = "Satellite Mode: Active";
+                    status.classList.remove('text-amber-500');
+                    status.classList.add('text-emerald-500');
+                }
 
                 if (window.locWatchId) navigator.geolocation.clearWatch(window.locWatchId);
                 window.locWatchId = navigator.geolocation.watchPosition(
@@ -3821,11 +3841,29 @@ HTML_TEMPLATE = """
 
             } catch (err) {
                 console.warn("Satellite Handshake Fallback:", err.message);
-                let errorMsg = "GPS Timeout";
-                if (err.code === 1) errorMsg = "GPS Restricted";
+                let errorMsg = "GPS Signal Fragmented";
+                if (err.code === 1) errorMsg = "GPS Permission Denied";
+                if (err.message === "METRO_GPS_TIMEOUT" || err.code === 3) errorMsg = "GPS Timeout Happened";
 
-                finalizeStatus(`${errorMsg}. Ameerpet Hub Active.`, "text-amber-500");
-                // fallbackToDefault was already called, so we're good
+                const status = document.getElementById('satellite-status');
+                const userLocText = document.getElementById('user-location-text');
+
+                if (status) {
+                    status.innerText = `${errorMsg}. Ameerpet Hub Active.`;
+                    status.classList.remove('text-emerald-500');
+                    status.classList.add('text-amber-500');
+                }
+
+                if (userLocText) {
+                    userLocText.classList.remove('animate-pulse');
+                    userLocText.innerText = errorMsg;
+                    userLocText.classList.add('text-slate-400');
+                }
+
+                // If location fails, we usually fallback to Ameerpet default via previous logic or just updateBoardData with default
+                if (!lastUserLoc) {
+                   await updateBoardData(17.4334, 78.4484); // amepert
+                }
             }
         }
 
