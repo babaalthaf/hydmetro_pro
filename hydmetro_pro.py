@@ -17,6 +17,7 @@ app = Flask(__name__)
 
 # Pull API Keys from Environment (Managed in AI Studio Settings)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_PLATFORM_KEY', '')
 
 # Initialize Gemini Client if key is available
 ai_client = None
@@ -25,6 +26,7 @@ if GEMINI_API_KEY:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
         print(f"Gemini Init Error: {e}")
+
 
 # ==========================================
 # 1. ENHANCED DATA ENGINEERING & AI LOGIC
@@ -35,6 +37,7 @@ def get_ist_now():
     base_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
     return base_now
 
+
 def get_app_now():
     """Context-aware time for app logic."""
     if request and 'sim_hour' in request.args:
@@ -43,8 +46,10 @@ def get_app_now():
             m = int(request.args.get('sim_min', 0))
             now = get_ist_now()
             return now.replace(hour=h, minute=m, second=0, microsecond=0)
-        except: pass
+        except:
+            pass
     return get_ist_now()
+
 
 def get_ai_insight(prompt):
     """Uses Gemini to generate real-time transit insights if key is provided."""
@@ -60,34 +65,35 @@ def get_ai_insight(prompt):
         print(f"Gemini Inference Error: {e}")
         return None
 
+
 def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
     """Predicts load using the logic from the trained dataset formula with optional weather influence."""
     # Base logic (Fast fallback)
     is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
     is_it_hub = 1 if station_name in ['Hitech City', 'Madhapur', 'Raidurg'] else 0
-    is_festival = 0 # Default for live
-    
+    is_festival = 0  # Default for live
+
     score = 50 + (is_peak * 100) + (is_it_hub * 80) + (is_festival * 120)
     if is_weekend: score -= 20
-    
+
     if weather:
         if "Rain" in weather.get('condition', ''):
             score += 25
         if weather.get('temp', 30) > 35:
             score += 15
-    
+
     recommendation = "🟢 Good to travel"
-    if score > 200: 
+    if score > 200:
         load_lvl, recommendation = "High", "🔴 High Rush"
-    elif score > 140: 
+    elif score > 140:
         load_lvl, recommendation = "M-High", "🟡 Rush but manageable"
-    elif score > 100: 
+    elif score > 100:
         load_lvl, recommendation = "Medium", "🟢 Seat will be there"
     else:
         load_lvl, recommendation = "Low", "🟢 Good to travel"
 
     # Neural Enhancement: Attempt to get a real-world tip from Gemini
-    if ai_client and random.random() < 0.3: # Don't over-call during dev
+    if ai_client and random.random() < 0.3:  # Don't over-call during dev
         insight_prompt = f"Give a very short (10 words max) transit tip for someone at {station_name} metro station in Hyderabad at {hour}:00. Weather is {weather.get('condition', 'Unknown')} at {weather.get('temp', 'unknown')}C. Be witty."
         insight = get_ai_insight(insight_prompt)
         if insight:
@@ -95,15 +101,16 @@ def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
 
     return load_lvl, recommendation
 
+
 def get_live_weather(lat=None, lng=None):
     """Fetches real-time weather from Open-Meteo with extra metrics."""
     if lat is None or lng is None:
-        lat, lng = 17.3850, 78.4867 # Default Hyderabad
-        
+        lat, lng = 17.3850, 78.4867  # Default Hyderabad
+
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=relative_humidity_2m,visibility"
         data = requests.get(url, timeout=2).json()
-        
+
         wmo_mapping = {
             0: "Sunny", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
             45: "Foggy", 48: "Rime Fog", 51: "Light Drizzle", 53: "Moderate Drizzle",
@@ -113,29 +120,34 @@ def get_live_weather(lat=None, lng=None):
         }
         code = data['current_weather']['weathercode']
         condition = wmo_mapping.get(code, "Cloudy")
-        
+
         ist_now = get_ist_now()
         h_idx = ist_now.hour
-        
+
         return {
             'temp': data['current_weather']['temperature'],
             'condition': condition,
-            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(data['hourly']['relative_humidity_2m']) else 45,
-            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(data['hourly']['visibility']) else 10,
+            'humidity': data['hourly']['relative_humidity_2m'][h_idx] if h_idx < len(
+                data['hourly']['relative_humidity_2m']) else 45,
+            'visibility': (data['hourly']['visibility'][h_idx] / 1000) if h_idx < len(
+                data['hourly']['visibility']) else 10,
             'aqi': random.randint(30, 70)
         }
     except:
         return {'temp': 30, 'condition': 'Clear Sky', 'humidity': 45, 'visibility': 10, 'aqi': 42}
 
+
 def generate_ai_dataset():
     """Generates a mock ridership dataset for AI training simulation."""
     stations_for_df = [s['name'] for s in STATIONS_LIST]
     sample_size = 500
-    
+
     with open("final_metro_dataset.csv", "w", newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['stop_name', 'arrival_time', 'platform', 'hour', 'day_of_week', 'is_peak', 'is_weekend', 'is_it_hub', 'temperature', 'rainfall', 'is_festival', 'ridership'])
-        
+        writer.writerow(
+            ['stop_name', 'arrival_time', 'platform', 'hour', 'day_of_week', 'is_peak', 'is_weekend', 'is_it_hub',
+             'temperature', 'rainfall', 'is_festival', 'ridership'])
+
         it_stations = ['Hitech City', 'Madhapur', 'Raidurg']
         base_time = get_ist_now() - timedelta(days=7)
 
@@ -144,89 +156,158 @@ def generate_ai_dataset():
             stop_name = random.choice(stations_for_df)
             hour = arrival.hour
             dow = arrival.weekday()
-            
+
             is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
             is_weekend = 1 if dow >= 5 else 0
             is_it_hub = 1 if stop_name in it_stations else 0
             temp = 25 + (hour % 12)
             rainfall = random.choice([0, 0, 5, 10])
             is_festival = 0
-            
+
             noise = random.gauss(0, 10)
             ridership = int(50 + (is_peak * 100) + (is_it_hub * 80) - (is_weekend * 20) + noise)
-            
-            writer.writerow([stop_name, arrival.strftime('%Y-%m-%d %H:%M:%S'), random.choice(['1', '2']), hour, dow, is_peak, is_weekend, is_it_hub, temp, rainfall, is_festival, ridership])
+
+            writer.writerow(
+                [stop_name, arrival.strftime('%Y-%m-%d %H:%M:%S'), random.choice(['1', '2']), hour, dow, is_peak,
+                 is_weekend, is_it_hub, temp, rainfall, is_festival, ridership])
     return True
+
 
 # ==========================================
 # 2. FULL DATASET (57 STATIONS)
 # ==========================================
 STATIONS_LIST = [
     # RED LINE (1-27)
-    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'lat': 17.4933, 'lng': 78.3484, 'amenities': ['Large Parking Hub', 'Food Court', 'Medical Center']},
-    {'id': 'R2', 'name': 'JNTU College', 'line': 'Red', 'lat': 17.4877, 'lng': 78.3557},
-    {'id': 'R3', 'name': 'KPHB Colony', 'line': 'Red', 'lat': 17.4834, 'lng': 78.3883},
-    {'id': 'R4', 'name': 'Kukatpally', 'line': 'Red', 'lat': 17.4842, 'lng': 78.3986},
-    {'id': 'R5', 'name': 'Dr. B. R. Ambedkar Balanagar', 'line': 'Red', 'lat': 17.4776, 'lng': 78.4216},
-    {'id': 'R6', 'name': 'Moosapet', 'line': 'Red', 'lat': 17.4727, 'lng': 78.4279},
-    {'id': 'R7', 'name': 'Bharat Nagar', 'line': 'Red', 'lat': 17.4646, 'lng': 78.4357},
-    {'id': 'R8', 'name': 'Erragadda', 'line': 'Red', 'lat': 17.4572, 'lng': 78.4412},
-    {'id': 'R9', 'name': 'ESI Hospital', 'line': 'Red', 'lat': 17.4517, 'lng': 78.4457},
-    {'id': 'R10', 'name': 'S.R. Nagar', 'line': 'Red', 'lat': 17.4442, 'lng': 78.4484},
-    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'lat': 17.4334, 'lng': 78.4484, 'amenities': ['L3 Interchange Terminal', 'Ameerpet Metro Mall', 'Apollo Clinic']},
-    {'id': 'R12', 'name': 'Punjagutta', 'line': 'Red', 'lat': 17.4261, 'lng': 78.4522, 'amenities': ['Next Galleria Mall', 'PVR Cinemas']},
-    {'id': 'R13', 'name': 'Irrum Manzil', 'line': 'Red', 'lat': 17.4184, 'lng': 78.4557},
-    {'id': 'R14', 'name': 'Khairatabad', 'line': 'Red', 'lat': 17.4101, 'lng': 78.4611},
-    {'id': 'R15', 'name': 'Lakdi-ka-pul', 'line': 'Red', 'lat': 17.4024, 'lng': 78.4657},
-    {'id': 'R16', 'name': 'Assembly', 'line': 'Red', 'lat': 17.3984, 'lng': 78.4723},
-    {'id': 'R17', 'name': 'Nampally', 'line': 'Red', 'lat': 17.3916, 'lng': 78.4757},
-    {'id': 'R18', 'name': 'Gandhi Bhavan', 'line': 'Red', 'lat': 17.3872, 'lng': 78.4784},
-    {'id': 'R19', 'name': 'Osmania Medical College', 'name_alias': 'OMC', 'line': 'Red', 'lat': 17.3824, 'lng': 78.4812},
-    {'id': 'R20', 'name': 'MG Bus Station', 'name_alias': 'MGBS', 'line': 'Red', 'lat': 17.3776, 'lng': 78.4815, 'amenities': ['Interstate Bus Hub', 'Multi-level Parking']},
-    {'id': 'R21', 'name': 'Malakpet', 'line': 'Red', 'lat': 17.3752, 'lng': 78.4907},
-    {'id': 'R22', 'name': 'New Market', 'line': 'Red', 'lat': 17.3712, 'lng': 78.5084},
-    {'id': 'R23', 'name': 'Musarambagh', 'line': 'Red', 'lat': 17.3684, 'lng': 78.5212},
-    {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'lat': 17.3657, 'lng': 78.5357},
-    {'id': 'R25', 'name': 'Chaitanyapuri', 'line': 'Red', 'lat': 17.3612, 'lng': 78.5484},
-    {'id': 'R26', 'name': 'Victoria Memorial', 'line': 'Red', 'lat': 17.3557, 'lng': 78.5512},
-    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'lat': 17.3458, 'lng': 78.5524, 'amenities': ['South Hub Terminal', 'Auto Stand']},
+    {'id': 'R1', 'name': 'Miyapur', 'line': 'Red', 'lat': 17.4933, 'lng': 78.3484,
+     'amenities': ['Large Parking Area', 'Food Court', 'Medical Center'],
+     'description': 'Miyapur is a major residential hub and the western terminal of the metro. Nearby you’ll find DMart, GSM Mall, and multiple local shopping complexes. TSRTC bus connectivity is strong with Miyapur Bus Depot nearby, while the closest MMTS access is via Hafeezpet (a short ride away). The area is mostly residential but growing rapidly with apartments, making it ideal for commuters rather than tourism.'},
+    {'id': 'R2', 'name': 'JNTU College', 'line': 'Red', 'lat': 17.4877, 'lng': 78.3557,
+     'description': 'This station serves Jawaharlal Nehru Technological University and is surrounded by student hostels, bookstores, and cafes. Nearby shopping is mostly local markets, and bus connectivity is frequent. The closest MMTS is Kukatpally/Hafeezpet. It’s not a tourist spot but a strong student ecosystem.'},
+    {'id': 'R3', 'name': 'KPHB Colony', 'line': 'Red', 'lat': 17.4834, 'lng': 78.3883,
+     'description': 'KPHB is a lively area with Forum Sujana Mall, South India Shopping Mall, Manjeera Mall (nearby Kukatpally). TSRTC buses are frequent, and Kukatpally bus stops are close. MMTS access is via Hafeezpet. It’s great for shopping, street food, and casual hangouts.'},
+    {'id': 'R4', 'name': 'Kukatpally', 'line': 'Red', 'lat': 17.4842, 'lng': 78.3986,
+     'description': 'One of the busiest areas, Kukatpally has Manjeera Mall, Forum Mall, and extensive street shopping. It is well connected by buses and close to Kukatpally Y Junction. MMTS is accessible via Hafeezpet. Not a tourist hub, but excellent for shopping and food.'},
+    {'id': 'R5', 'name': 'Dr. B. R. Ambedkar Balanagar', 'line': 'Red', 'lat': 17.4776, 'lng': 78.4216,
+     'description': 'Balanagar is an industrial area with limited malls but strong TSRTC bus connectivity. The closest MMTS is Balanagar MMTS station. It’s mainly functional for workers; not much tourism here.'},
+    {'id': 'R6', 'name': 'Moosapet', 'line': 'Red', 'lat': 17.4727, 'lng': 78.4279,
+     'description': 'Moosapet has small commercial complexes and easy bus connectivity. Nearby MMTS stations include Bharat Nagar and Balanagar. The area is practical for commuting but not tourist-oriented.'},
+    {'id': 'R7', 'name': 'Bharat Nagar', 'line': 'Red', 'lat': 17.4646, 'lng': 78.4357,
+     'description': 'This station connects to Bharat Nagar MMTS Station, making it a key multimodal point. It has local shops and moderate bus connectivity. No major malls or tourist spots.'},
+    {'id': 'R8', 'name': 'Erragadda', 'line': 'Red', 'lat': 17.4572, 'lng': 78.4412,
+     'description': 'Erragadda is known for hospitals like ESI Hospital Hyderabad. Nearby are small shopping areas and bus stops. MMTS is accessible via Bharat Nagar. It’s more of a healthcare hub than a tourist destination.'},
+    {'id': 'R9', 'name': 'ESI Hospital', 'line': 'Red', 'lat': 17.4517, 'lng': 78.4457,
+     'description': 'This station directly serves medical facilities including ESI Hospital. Bus connectivity is strong, and MMTS access is via nearby stations like Bharat Nagar. No malls or tourist attractions here.'},
+    {'id': 'R10', 'name': 'S.R. Nagar', 'line': 'Red', 'lat': 17.4442, 'lng': 78.4484,
+     'description': 'SR Nagar is full of coaching institutes and student hostels. It has small shopping complexes and strong bus connectivity. The nearest MMTS is Nature Cure (towards Begumpet side). It’s a student hub rather than a tourist place.'},
+    {'id': 'R11', 'name': 'Ameerpet', 'line': 'Red', 'lat': 17.4334, 'lng': 78.4484,
+     'amenities': ['Transfer Area', 'Ameerpet Metro Mall', 'Apollo Clinic'],
+     'description': 'Ameerpet Metro Station is the busiest interchange. Nearby malls include GVK One (Punjagutta), Hyderabad Central Mall. Bus connectivity is excellent, and MMTS stations like Begumpet are nearby. It’s a commercial hotspot with shopping, coaching centers, and food.'},
+    {'id': 'R12', 'name': 'Punjagutta', 'line': 'Red', 'lat': 17.4261, 'lng': 78.4522,
+     'amenities': ['Next Galleria Mall', 'PVR Cinemas'],
+     'description': 'Punjagutta is a premium commercial area with GVK One Mall, Next Galleria Mall. TSRTC buses are frequent, and MMTS is accessible via Begumpet. It’s great for shopping and dining.'},
+    {'id': 'R13', 'name': 'Irrum Manzil', 'line': 'Red', 'lat': 17.4184, 'lng': 78.4557,
+     'description': 'This station serves government offices and business areas. Limited shopping options but good bus connectivity. Nearest MMTS is Lakdikapul (via short travel). Not a tourist area.'},
+    {'id': 'R14', 'name': 'Khairatabad', 'line': 'Red', 'lat': 17.4101, 'lng': 78.4611,
+     'description': 'Khairatabad connects to Hussain Sagar, Birla Mandir Hyderabad, and Lumbini Park. Good TSRTC bus links and nearby MMTS Lakdikapul. This is a key tourist-friendly station.'},
+    {'id': 'R15', 'name': 'Lakdi-ka-pul', 'line': 'Red', 'lat': 17.4024, 'lng': 78.4657,
+     'description': 'Lakdikapul offers access to hotels, offices, and MMTS Lakdikapul station. Bus connectivity is strong. Tourist spots like Birla Mandir and Necklace Road are nearby.'},
+    {'id': 'R16', 'name': 'Assembly', 'line': 'Red', 'lat': 17.3984, 'lng': 78.4723,
+     'description': 'This station serves the Telangana Assembly area. Limited shopping, but strong bus routes. MMTS is nearby at Lakdikapul. Not tourist-focused.'},
+    {'id': 'R17', 'name': 'Nampally', 'line': 'Red', 'lat': 17.3916, 'lng': 78.4757,
+     'description': 'Nampally connects to Hyderabad Deccan Railway Station and Exhibition Grounds. Good bus services and railway connectivity. Tourist places include markets and heritage zones.'},
+    {'id': 'R18', 'name': 'Gandhi Bhavan', 'line': 'Red', 'lat': 17.3872, 'lng': 78.4784,
+     'description': 'A commercial and political area with local shops and bus access. MMTS is via Nampally. No major tourist attractions.'},
+    {'id': 'R19', 'name': 'Osmania Medical College', 'name_alias': 'OMC', 'line': 'Red', 'lat': 17.3824, 'lng': 78.4812,
+     'description': 'Serves Osmania Medical College and hospitals. Bus connectivity is strong. Not a shopping or tourist hub.'},
+    {'id': 'R20', 'name': 'MG Bus Station', 'name_alias': 'MGBS', 'line': 'Red', 'lat': 17.3776, 'lng': 78.4815,
+     'amenities': ['Interstate Bus Station', 'Multi-level Parking'],
+     'description': 'Mahatma Gandhi Bus Station is a massive TSRTC hub and interchange with Green Line. Nearby attractions include Charminar, Laad Bazaar, and Salar Jung Museum. No malls, but rich heritage.'},
+    {'id': 'R21', 'name': 'Malakpet', 'line': 'Red', 'lat': 17.3752, 'lng': 78.4907,
+     'description': 'Malakpet has local markets and bus connectivity. Nearby MMTS Malakpet station is available. It’s a residential and cultural area.'},
+    {'id': 'R22', 'name': 'New Market', 'line': 'Red', 'lat': 17.3712, 'lng': 78.5084,
+     'description': 'Traditional shopping area with local vendors and bus access. No MMTS directly, but nearby Malakpet station. Good for budget shopping.'},
+    {'id': 'R23', 'name': 'Musarambagh', 'line': 'Red', 'lat': 17.3684, 'lng': 78.5212,
+     'description': 'Residential locality with TSRTC buses and limited shopping. No major tourist attractions.'},
+    {'id': 'R24', 'name': 'Dilsukhnagar', 'line': 'Red', 'lat': 17.3657, 'lng': 78.5357,
+     'description': 'Major commercial hub with shopping complexes, street food, and bus connectivity. MMTS Malakpet is nearby. It’s one of the busiest areas in east Hyderabad.'},
+    {'id': 'R25', 'name': 'Chaitanyapuri', 'line': 'Red', 'lat': 17.3612, 'lng': 78.5484,
+     'description': 'Residential area with small shops and good bus connectivity. Not a tourist spot.'},
+    {'id': 'R26', 'name': 'Victoria Memorial', 'line': 'Red', 'lat': 17.3557, 'lng': 78.5512,
+     'description': 'Quiet suburban station with minimal commercial activity. Mainly residential.'},
+    {'id': 'R27', 'name': 'LB Nagar', 'line': 'Red', 'lat': 17.3458, 'lng': 78.5524,
+     'amenities': ['South Terminal', 'Auto Stand'],
+     'description': 'The terminal station with strong TSRTC bus depot connectivity and highway access. It has shopping complexes and serves as a major transit junction for eastern Hyderabad.'},
 
     # BLUE LINE (1-23)
-    {'id': 'B1', 'name': 'Nagole', 'line': 'Blue', 'lat': 17.3941, 'lng': 78.5668},
-    {'id': 'B2', 'name': 'Uppal', 'line': 'Blue', 'lat': 17.3984, 'lng': 78.5684},
-    {'id': 'B3', 'name': 'Stadium', 'line': 'Blue', 'lat': 17.4021, 'lng': 78.5712},
-    {'id': 'B4', 'name': 'NGRI', 'line': 'Blue', 'lat': 17.4084, 'lng': 78.5684},
-    {'id': 'B5', 'name': 'Habsiguda', 'line': 'Blue', 'lat': 17.4212, 'lng': 78.5584},
-    {'id': 'B6', 'name': 'Tarnaka', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.5472},
-    {'id': 'B7', 'name': 'Mettuguda', 'line': 'Blue', 'lat': 17.4484, 'lng': 78.5342},
-    {'id': 'B8', 'name': 'Secunderabad East', 'line': 'Blue', 'lat': 17.4546, 'lng': 78.5212},
-    {'id': 'B9', 'name': 'Parade Ground', 'line': 'Blue', 'lat': 17.4452, 'lng': 78.4985},
-    {'id': 'B10', 'name': 'Paradise', 'line': 'Blue', 'lat': 17.4568, 'lng': 78.4972},
-    {'id': 'B11', 'name': 'Rasoolpura', 'line': 'Blue', 'lat': 17.4502, 'lng': 78.4851},
-    {'id': 'B12', 'name': 'Prakash Nagar', 'line': 'Blue', 'lat': 17.4468, 'lng': 78.4720},
-    {'id': 'B13', 'name': 'Begumpet', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.4612},
-    {'id': 'B14', 'name': 'Ameerpet', 'line': 'Blue', 'lat': 17.4334, 'lng': 78.4484, 'name_alias': 'Ameerpet'},
-    {'id': 'B15', 'name': 'Madhura Nagar', 'line': 'Blue', 'lat': 17.4280, 'lng': 78.4420},
-    {'id': 'B16', 'name': 'Yousufguda', 'line': 'Blue', 'lat': 17.4246, 'lng': 78.4357},
-    {'id': 'B17', 'name': 'Road No. 5 Jubilee Hills', 'line': 'Blue', 'lat': 17.4284, 'lng': 78.4239},
-    {'id': 'B18', 'name': 'Jubilee Hills Check Post', 'line': 'Blue', 'lat': 17.4310, 'lng': 78.4120},
-    {'id': 'B19', 'name': 'Peddamma Gudi', 'line': 'Blue', 'lat': 17.4330, 'lng': 78.4050},
-    {'id': 'B20', 'name': 'Madhapur', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.3984},
-    {'id': 'B21', 'name': 'Durgam Cheruvu', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.3857},
-    {'id': 'B22', 'name': 'HITEC City', 'line': 'Blue', 'lat': 17.4474, 'lng': 78.3762},
-    {'id': 'B23', 'name': 'Raidurg', 'line': 'Blue', 'lat': 17.4429, 'lng': 78.3750},
+    {'id': 'B1', 'name': 'Nagole', 'line': 'Blue', 'lat': 17.3941, 'lng': 78.5668,
+     'description': 'Nagole is the eastern terminal of the Blue Line. It has a metro depot and good bus connectivity to outer Hyderabad. The area is developing with residential projects and small commercial centers.'},
+    {'id': 'B2', 'name': 'Uppal', 'line': 'Blue', 'lat': 17.3984, 'lng': 78.5684,
+     'description': 'A major residential and commercial hub with markets, shopping complexes, and strong TSRTC bus connectivity. MMTS access is available at Uppal station.'},
+    {'id': 'B3', 'name': 'Stadium', 'line': 'Blue', 'lat': 17.4021, 'lng': 78.5712,
+     'description': 'This station provides access to Rajiv Gandhi International Cricket Stadium. It becomes very busy during matches. Bus connectivity is strong, and MMTS is via Uppal.'},
+    {'id': 'B4', 'name': 'NGRI', 'line': 'Blue', 'lat': 17.4084, 'lng': 78.5684,
+     'description': 'Named after National Geophysical Research Institute, this station serves research facilities and residential areas. Limited shopping, but good bus connectivity.'},
+    {'id': 'B5', 'name': 'Habsiguda', 'line': 'Blue', 'lat': 17.4212, 'lng': 78.5584,
+     'description': 'A residential and research area with institutes like CCMB nearby. Bus connectivity is good, and MMTS is via Habsiguda/Jamai Osmania.'},
+    {'id': 'B6', 'name': 'Tarnaka', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.5472,
+     'description': 'Tarnaka serves students and staff of Osmania University. It has local markets, eateries, and good bus connectivity. MMTS is accessible via Jamai Osmania station.'},
+    {'id': 'B7', 'name': 'Mettuguda', 'line': 'Blue', 'lat': 17.4484, 'lng': 78.5342,
+     'description': 'A residential area with railway connectivity nearby. Bus services are moderate, and MMTS access is via Secunderabad. No major malls or tourist spots.'},
+    {'id': 'B8', 'name': 'Secunderabad East', 'line': 'Blue', 'lat': 17.4546, 'lng': 78.5212,
+     'description': 'Close to Secunderabad Railway Station, this station is a major transit hub. Bus, rail, and metro connectivity converge here. Nearby shopping areas and hotels make it very active.'},
+    {'id': 'B9', 'name': 'Parade Ground', 'line': 'Blue', 'lat': 17.4452, 'lng': 78.4985,
+     'description': 'An important interchange with the Green Line. Located in Secunderabad cantonment area, it has strong bus connectivity and access to markets. MMTS is nearby at Secunderabad station.'},
+    {'id': 'B10', 'name': 'Paradise', 'line': 'Blue', 'lat': 17.4568, 'lng': 78.4972,
+     'description': 'Famous for Paradise Biryani, this station is a food hotspot. Nearby markets and shopping areas make it lively. Bus connectivity is strong, and MMTS is accessible via Secunderabad.'},
+    {'id': 'B11', 'name': 'Rasoolpura', 'line': 'Blue', 'lat': 17.4502, 'lng': 78.4851,
+     'description': 'A dense locality with local markets and small businesses. Bus services are available, and MMTS is accessible via Begumpet. It’s mainly a transit stop.'},
+    {'id': 'B12', 'name': 'Prakash Nagar', 'line': 'Blue', 'lat': 17.4468, 'lng': 78.4720,
+     'description': 'A smaller station serving residential and office areas. Limited shopping options but good bus connectivity. MMTS is via Begumpet. Not a tourist area.'},
+    {'id': 'B13', 'name': 'Begumpet', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.4612,
+     'description': 'Begumpet is a business and residential hub with access to Begumpet Airport. Nearby are Hyderabad Central Mall and lifestyle stores. It connects directly to Begumpet MMTS Station, making it a key multimodal station.'},
+    {'id': 'B14', 'name': 'Ameerpet', 'line': 'Blue', 'lat': 17.4334, 'lng': 78.4484, 'name_alias': 'Ameerpet',
+     'description': 'Ameerpet Metro Station is the central interchange between Red and Blue lines. Nearby are Hyderabad Central Mall, GVK One Mall, and numerous coaching institutes. Bus connectivity is excellent, and MMTS stations like Begumpet are close.'},
+    {'id': 'B15', 'name': 'Madhura Nagar', 'line': 'Blue', 'lat': 17.4280, 'lng': 78.4420,
+     'description': 'A quiet residential locality with small shops and easy bus access. It mainly serves daily commuters. MMTS is accessible via nearby stations like Nature Cure.'},
+    {'id': 'B16', 'name': 'Yousufguda', 'line': 'Blue', 'lat': 17.4246, 'lng': 78.4357,
+     'description': 'A residential and sports-focused area, Yousufguda has local markets and stadium facilities. Bus connectivity is good, and MMTS is nearby at Begumpet. It’s more residential than commercial.'},
+    {'id': 'B17', 'name': 'Road No. 5 Jubilee Hills', 'line': 'Blue', 'lat': 17.4284, 'lng': 78.4239,
+     'description': 'This station connects to elite shopping streets and cafes in Jubilee Hills. It is close to KBR National Park, a major green space for walking and fitness. Bus services are frequent, and MMTS is via Begumpet.'},
+    {'id': 'B18', 'name': 'Jubilee Hills Check Post', 'line': 'Blue', 'lat': 17.4310, 'lng': 78.4120,
+     'description': 'A premium locality known for upscale residences, restaurants, and boutiques. Nearby malls include GVK One Mall and luxury dining places. Bus connectivity is available, and MMTS access is via Begumpet. It’s a high-end lifestyle area.'},
+    {'id': 'B19', 'name': 'Peddamma Gudi', 'line': 'Blue', 'lat': 17.4330, 'lng': 78.4050,
+     'description': 'This station is named after Peddamma Temple, a famous religious site. The area has local markets, eateries, and good bus connectivity. MMTS is accessible via nearby stations. It attracts devotees especially during festivals.'},
+    {'id': 'B20', 'name': 'Madhapur', 'line': 'Blue', 'lat': 17.4357, 'lng': 78.3984,
+     'description': 'Madhapur is a vibrant IT and nightlife hub filled with cafes, pubs, and coworking spaces. It has access to shopping complexes and is close to Inorbit Mall. TSRTC buses connect well, and MMTS is via HITEC City. It’s one of the most happening areas in Hyderabad.'},
+    {'id': 'B21', 'name': 'Durgam Cheruvu', 'line': 'Blue', 'lat': 17.4398, 'lng': 78.3857,
+     'description': 'Located near the scenic Durgam Cheruvu, this station is popular for evening outings. The cable bridge, lakefront parks, and cafes are key attractions. Bus connectivity is moderate, and MMTS is via HITEC City. No major malls right next to it, but Inorbit is nearby.'},
+    {'id': 'B22', 'name': 'HITEC City', 'line': 'Blue', 'lat': 17.4474, 'lng': 78.3762,
+     'description': 'This station serves HITEC City, one of India’s biggest tech hubs. Nearby are Inorbit Mall, Shilparamam Crafts Village, and multiple tech parks. Bus connectivity is strong, and HITEC City MMTS Station is within reach. It’s a major hotspot for offices, shopping, and nightlife.'},
+    {'id': 'B23', 'name': 'Raidurg', 'line': 'Blue', 'lat': 17.4429, 'lng': 78.3750,
+     'description': 'Raidurg is the western terminal of the Blue Line and sits at the edge of Hyderabad’s Financial District. It provides access to major IT campuses and offices. Nearby shopping includes Inorbit Mall and Sarath City Capital Mall (a short ride away). TSRTC buses connect Raidurg to Gachibowli and other IT areas, while the nearest MMTS access is via HITEC City station. Tourist spots include Durgam Cheruvu and the cable bridge nearby, making it a mix of work and leisure.'},
 
     # GREEN LINE (1-10)
-    {'id': 'G1', 'name': 'Jubilee Bus Station', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002},
-    {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985, 'name_alias': 'Parade Ground'},
-    {'id': 'G3', 'name': 'Secunderabad West', 'line': 'Green', 'lat': 17.4410, 'lng': 78.5020},
-    {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'lat': 17.4335, 'lng': 78.5020},
-    {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'lat': 17.4215, 'lng': 78.5030},
-    {'id': 'G6', 'name': 'RTC X Roads', 'line': 'Green', 'lat': 17.4080, 'lng': 78.5040},
-    {'id': 'G7', 'name': 'Chikkadpally', 'line': 'Green', 'lat': 17.4025, 'lng': 78.4965},
-    {'id': 'G8', 'name': 'Narayanaguda', 'line': 'Green', 'lat': 17.3964, 'lng': 78.4893},
-    {'id': 'G9', 'name': 'Sultan Bazaar', 'line': 'Green', 'lat': 17.3888, 'lng': 78.4842},
-    {'id': 'G10', 'name': 'MG Bus Station', 'line': 'Green', 'lat': 17.3776, 'lng': 78.4815, 'name_alias': 'MGBS'}
+    {'id': 'G1', 'name': 'JBS', 'line': 'Green', 'lat': 17.4510, 'lng': 78.5002,
+     'description': 'Jubilee Bus Station is a major TSRTC terminal and the northern end of the Green Line. It has strong bus connectivity and local markets. MMTS access is via Secunderabad East.'},
+    {'id': 'G2', 'name': 'Parade Ground', 'line': 'Green', 'lat': 17.4452, 'lng': 78.4985,
+     'name_alias': 'Parade Ground',
+     'description': 'An important interchange with the Blue Line. Located in Secunderabad cantonment area, it has strong bus connectivity and access to markets. MMTS is nearby at Secunderabad station.'},
+    {'id': 'G3', 'name': 'Secunderabad West', 'line': 'Green', 'lat': 17.4410, 'lng': 78.5020,
+     'description': 'Close to Secunderabad Railway Station, this station serves busy commercial areas. Bus and rail connectivity make it a major transit point. Nearby hotels and markets.'},
+    {'id': 'G4', 'name': 'Gandhi Hospital', 'line': 'Green', 'lat': 17.4335, 'lng': 78.5020,
+     'description': 'Directly serves Gandhi Hospital and medical college. Strong bus connectivity. Not a shopping or tourist area.'},
+    {'id': 'G5', 'name': 'Musheerabad', 'line': 'Green', 'lat': 17.4215, 'lng': 78.5030,
+     'description': 'A residential and commercial locality with local shops and bus access. MMTS is accessible via Secunderabad.'},
+    {'id': 'G6', 'name': 'RTC X Roads', 'line': 'Green', 'lat': 17.4080, 'lng': 78.5040,
+     'description': 'Famous for cinema halls and local eateries. It has strong bus connectivity and is a popular hangout spot for locals. No major malls, but excellent for food.'},
+    {'id': 'G7', 'name': 'Chikkadpally', 'line': 'Green', 'lat': 17.4025, 'lng': 78.4965,
+     'description': 'Residential area with local markets and coaching centers. Good bus connectivity. Not a tourist destination.'},
+    {'id': 'G8', 'name': 'Narayanaguda', 'line': 'Green', 'lat': 17.3964, 'lng': 78.4893,
+     'description': 'A student-heavy area with colleges and coaching centers. Local shops and bus connectivity are strong. MMTS is nearby at Kachiguda station.'},
+    {'id': 'G9', 'name': 'Sultan Bazaar', 'line': 'Green', 'lat': 17.3888, 'lng': 78.4842,
+     'description': 'Located near the historic Koti market area, this station is great for budget shopping. Heritage sites and heritage buildings are nearby. Strong bus link to Koti Bus Terminal.'},
+    {'id': 'G10', 'name': 'MG Bus Station', 'line': 'Green', 'lat': 17.3776, 'lng': 78.4815, 'name_alias': 'MGBS',
+     'description': 'Mahatma Gandhi Bus Station is a massive TSRTC hub and interchange with Blue Line. Nearby attractions include Charminar and Salar Jung Museum. No malls, but rich heritage.'}
 ]
 
 LANDMARKS = [
@@ -243,8 +324,10 @@ LANDMARKS = [
 ]
 
 CONNECTIONS = {
-    'Red': ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22', 'R23', 'R24', 'R25', 'R26', 'R27'],
-    'Blue': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'],
+    'Red': ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16',
+            'R17', 'R18', 'R19', 'R20', 'R21', 'R22', 'R23', 'R24', 'R25', 'R26', 'R27'],
+    'Blue': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16',
+             'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'],
     'Green': ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']
 }
 
@@ -255,6 +338,7 @@ CONNECTIONS = {
 GTFS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gtfs.csv')
 _GTFS_CACHE = None  # Global cache for performance
 
+
 def ensure_gtfs(force=False):
     """Generates a high-frequency, dynamic GTFS simulation."""
     global _GTFS_CACHE
@@ -263,7 +347,7 @@ def ensure_gtfs(force=False):
         with open(GTFS_FILE, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['trip_id', 'station_id', 'arrival_time', 'platform', 'direction', 'final_stop', 'line'])
-            
+
             now_base = get_ist_now()
             start_day = now_base.day
 
@@ -271,29 +355,31 @@ def ensure_gtfs(force=False):
                 for dir_type in ['Forward', 'Backward']:
                     path = stations if dir_type == 'Forward' else stations[::-1]
                     final_name = next(s['name'] for s in STATIONS_LIST if s['id'] == path[-1])
-                    
+
                     # More realistic intervals: 6 mins peak, 12 mins off-peak
                     current_trip_time = now_base.replace(hour=4, minute=0, second=0, microsecond=0)
                     trip_idx = 0
                     while current_trip_time.day == start_day and current_trip_time.hour < 23:
                         h = current_trip_time.hour
                         interval = 6 if (7 <= h <= 10 or 17 <= h <= 21) else 12
-                        
+
                         trip_id = f"{line}_{dir_type}_{trip_idx}"
                         trip_start_time = current_trip_time
-                        
+
                         # Platform Logic: Red (1,2), Blue (3,4), Green (1,2 - separate area)
                         p_base = 1 if line == 'Red' or line == 'Green' else 3
                         platform = str(p_base if dir_type == 'Forward' else p_base + 1)
 
                         for sid in path:
-                            writer.writerow([trip_id, sid, trip_start_time.strftime('%H:%M:%S'), platform, dir_type, final_name, line])
+                            writer.writerow(
+                                [trip_id, sid, trip_start_time.strftime('%H:%M:%S'), platform, dir_type, final_name,
+                                 line])
                             trip_start_time += timedelta(minutes=2)
-                        
+
                         current_trip_time += timedelta(minutes=interval)
                         trip_idx += 1
         print("GTFS Generation Complete.")
-        _GTFS_CACHE = None # Invalidate cache
+        _GTFS_CACHE = None  # Invalidate cache
 
     if _GTFS_CACHE is None:
         try:
@@ -301,16 +387,19 @@ def ensure_gtfs(force=False):
                 _GTFS_CACHE = list(csv.DictReader(f))
         except:
             _GTFS_CACHE = []
-    
+
     return _GTFS_CACHE
+
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
-    dlat, dlon = math.radians(lat2-lat1), math.radians(lon2-lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     return R * 2 * math.asin(math.sqrt(a))
 
+
 FEEDBACK_CLOUD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'feedback_cloud.json')
+
 
 def save_feedback_to_cloud(feedback_data):
     """Saves feedback to a server-side JSON file (simulating cloud storage)."""
@@ -320,13 +409,13 @@ def save_feedback_to_cloud(feedback_data):
                 history = json.load(f)
         else:
             history = []
-        
+
         history.append(feedback_data)
-        
+
         # Limit cloud history to prevent massive file growth
         if len(history) > 1000:
             history = history[-1000:]
-            
+
         with open(FEEDBACK_CLOUD_FILE, 'w') as f:
             json.dump(history, f)
         return True
@@ -334,32 +423,40 @@ def save_feedback_to_cloud(feedback_data):
         print(f"Cloud Feed Sync Error: {e}")
         return False
 
+
 # ==========================================
 # 4. API ENDPOINTS
 # ==========================================
 
 @app.route('/')
 def index():
-    ensure_gtfs(force=True) # Ensure GTFS reflects new stations
-    return render_template_string(HTML_TEMPLATE, ALL_STATIONS=STATIONS_LIST, CONNECTIONS=CONNECTIONS, LANDMARKS=LANDMARKS)
+    ensure_gtfs(force=True)  # Ensure GTFS reflects new stations
+    return render_template_string(HTML_TEMPLATE,
+                                  ALL_STATIONS=STATIONS_LIST,
+                                  CONNECTIONS=CONNECTIONS,
+                                  LANDMARKS=LANDMARKS,
+                                  GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY
+                                  )
+
 
 @app.route('/api/feedback', methods=['POST'])
 def api_feedback():
     data = request.json
     if not data or 'message' not in data:
         return jsonify({'status': 'error', 'message': 'Invalid data'}), 400
-    
+
     # Enrich with server timestamp
     data['server_received'] = get_app_now().strftime('%Y-%m-%d %H:%M:%S')
-    
+
     success = save_feedback_to_cloud(data)
     return jsonify({'status': 'success' if success else 'failed'})
+
 
 @app.route('/api/nearest', methods=['POST'])
 def api_nearest():
     data = request.json or {}
     dist = 0
-    
+
     if 'station_id' in data:
         nearest = next(s for s in STATIONS_LIST if s['id'] == data['station_id'])
         lat, lng = nearest['lat'], nearest['lng']
@@ -367,21 +464,21 @@ def api_nearest():
         lat, lng = data.get('lat', 17.3850), data.get('lng', 78.4867)
         nearest = min(STATIONS_LIST, key=lambda s: haversine(lat, lng, s['lat'], s['lng']))
         dist = haversine(lat, lng, nearest['lat'], nearest['lng'])
-    
+
     # Urban Walking Adjustment: approx 1.35x crow-flies distance for city streets
     walk_dist = dist * 1.35
-    walking_mins = int((walk_dist / 5.0) * 60) # Assume 5km/h walking speed
+    walking_mins = int((walk_dist / 5.0) * 60)  # Assume 5km/h walking speed
     if walking_mins < 1: walking_mins = 1
-    
+
     name = nearest.get('name_alias', nearest['name'])
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
-    
+
     trips = ensure_gtfs()
     now = get_app_now()
     now_str = now.strftime('%H:%M:%S')
     one_hour_later = now + timedelta(hours=1)
     oh_str = one_hour_later.strftime('%H:%M:%S')
-    
+
     upcoming = []
     for row in trips:
         if row['station_id'] in matching_ids and now_str < row['arrival_time'] < oh_str:
@@ -391,18 +488,19 @@ def api_nearest():
                 arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                 diff = (arrival_dt - now).total_seconds()
                 if diff < 0: continue
-                
+
                 m, s = divmod(int(diff), 60)
                 row_copy = row.copy()
                 row_copy['eta'] = f"{m:02d}:{s:02d}"
                 upcoming.append(row_copy)
-            except: continue
-    
+            except:
+                continue
+
     # AI & Weather Data
     weather = get_live_weather(lat=lat, lng=lng)
     is_weekend = now.weekday() >= 5
     load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
-    
+
     # Landmark Logic (Mocked based on station name for demo)
     landmarks = []
     if name == 'Ameerpet':
@@ -433,24 +531,25 @@ def api_nearest():
 
     # Sort upcoming by original string comparison (before I:M p conversion)
     upcoming.sort(key=lambda x: x['arrival_time'])
-    
+
     # Use 12-hour format for upcoming trains
     for t in upcoming:
         try:
             h, m, s = map(int, t['arrival_time'].split(':'))
             dt = now.replace(hour=h, minute=m, second=s)
             t['arrival_time'] = dt.strftime('%I:%M %p')
-        except: pass
-    
+        except:
+            pass
+
     # Sort upcoming by original string comparison (before I:M p conversion) or keep it consistent
-    
+
     return jsonify({
-        'station': nearest, 
+        'station': nearest,
         'distance': round(dist, 2),
         'walk_dist': round(walk_dist, 2),
         'walking_mins': walking_mins,
-        'upcoming': upcoming, 
-        'load_val': load_val, 
+        'upcoming': upcoming,
+        'load_val': load_val,
         'load_label': load_label,
         'active_trips': active_count,
         'weather': weather,
@@ -460,6 +559,7 @@ def api_nearest():
         'greeting': "Good Morning" if 5 <= now.hour < 12 else "Good Afternoon" if 12 <= now.hour < 17 else "Good Evening"
     })
 
+
 @app.route('/api/weather', methods=['POST'])
 def api_weather():
     data = request.json
@@ -467,12 +567,13 @@ def api_weather():
     weather = get_live_weather(lat=lat, lng=lng)
     return jsonify(weather)
 
+
 @app.route('/api/plan', methods=['POST'])
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
     now = get_app_now()
-    
+
     # BFS find path
     queue = [(start_id, [start_id])]
     visited = {start_id}
@@ -489,8 +590,8 @@ def api_plan():
             for line in CONNECTIONS.values():
                 if curr in line:
                     idx = line.index(curr)
-                    if idx > 0: neighbors.append(line[idx-1])
-                    if idx < len(line)-1: neighbors.append(line[idx+1])
+                    if idx > 0: neighbors.append(line[idx - 1])
+                    if idx < len(line) - 1: neighbors.append(line[idx + 1])
             c_name = next((s['name'] for s in STATIONS_LIST if s['id'] == curr), None)
             if c_name:
                 for s in STATIONS_LIST:
@@ -499,34 +600,34 @@ def api_plan():
                 if n not in visited:
                     visited.add(n)
                     queue.append((n, p + [n]))
-    
+
     sequence = [next(s for s in STATIONS_LIST if s['id'] == sid) for sid in path]
     duration = max(2, len(sequence) * 2) if sequence else 0
     total_stops = len(sequence) - 1 if len(sequence) > 1 else max(0, len(sequence))
-    
+
     # Synchronize Arrival Time with GTFS schedule
     ensure_gtfs()
     gtfs_arrival_time = None
     gtfs_boarding_time = None
     chosen_trip_id = None
-    
+
     # Track arrival time for every stop in the journey
-    stop_arrival_times = {} 
-    
+    stop_arrival_times = {}
+
     try:
         now_str = now.strftime('%H:%M:%S')
         with open(GTFS_FILE, 'r') as f:
             reader = csv.DictReader(f)
             trips = list(reader)
-        
+
         # Find the next available trip at start station
         start_id = sequence[0]['id']
         end_id = sequence[-1]['id'] if sequence else None
-        
+
         possible_trips = [t for t in trips if t['station_id'] == start_id and t['arrival_time'] > now_str]
         possible_trips.sort(key=lambda x: x['arrival_time'])
-        
-        for pt in possible_trips[:5]: # Check first 5 upcoming
+
+        for pt in possible_trips[:5]:  # Check first 5 upcoming
             trip_data = [t for t in trips if t['trip_id'] == pt['trip_id']]
             # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -536,7 +637,7 @@ def api_plan():
                     gtfs_arrival_time = destination_stop['arrival_time']
                     gtfs_boarding_time = pt['arrival_time']
                     chosen_trip_id = pt['trip_id']
-                    
+
                     # Map all stop times for this trip
                     for td in trip_data:
                         stop_arrival_times[td['station_id']] = td['arrival_time']
@@ -551,7 +652,8 @@ def api_plan():
             try:
                 h, m, s_ = map(int, s['reaching_at_raw'].split(':'))
                 s['reaching_at'] = now.replace(hour=h, minute=m, second=s_).strftime('%I:%M %p')
-            except: s['reaching_at'] = s['reaching_at_raw']
+            except:
+                s['reaching_at'] = s['reaching_at_raw']
         else:
             s['reaching_at'] = "--:--"
 
@@ -559,9 +661,9 @@ def api_plan():
     total_km = 0
     for i in range(len(sequence) - 1):
         s1 = sequence[i]
-        s2 = sequence[i+1]
+        s2 = sequence[i + 1]
         total_km += haversine(s1['lat'], s1['lng'], s2['lat'], s2['lng'])
-    
+
     # Official Fare Logic from Image
     def get_fare_from_matrix(dist):
         if dist <= 2: return 11
@@ -576,7 +678,7 @@ def api_plan():
         return 69
 
     calculated_fare = get_fare_from_matrix(total_km)
-    
+
     # Calculate more accurate duration using GTFS if available
     if gtfs_boarding_time and gtfs_arrival_time:
         try:
@@ -589,24 +691,25 @@ def api_plan():
             duration = len(sequence) * 2
     else:
         duration = len(sequence) * 2
-    
+
     weather = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
     weather_advice = " AC cooling optimized for intense heat." if weather.get('temp', 30) > 35 else \
-                     " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
-                     " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get('condition', '') else ""
+        " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
+            " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get(
+                'condition', '') else ""
 
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
     end_station_name = sequence[-1]['name']
     is_weekend = now.weekday() >= 5
     load_val, base_load_label = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
-    
+
     # NEW: Numerical Load and Peak Intensity Math
-    load_pct = 35 # Base
+    load_pct = 35  # Base
     if (7 <= now.hour <= 10 or 17 <= now.hour <= 21): load_pct += 45
     if start_station_name in ['Hitech City', 'Madhapur', 'Raidurg']: load_pct += 15
     load_pct = min(99.4, load_pct + random.uniform(-3, 3))
-    
+
     peak_intensity = 0
     if (7 <= now.hour <= 10):
         dist = abs(now.hour - 8.5)
@@ -618,11 +721,11 @@ def api_plan():
 
     # Base recommendation
     recommendation = (
-        "Optimal conditions. Low crowd density detected." if load_val == "Low" else \
-        "Fair volume. Seat likely available for your journey." if load_val == "Medium" else \
-        "Moderate volume. Manageable rush." if load_val == "M-High" else \
-        "Peak congestion. AI suggests waiting for dip."
-    ) + weather_advice
+                         "Empty seats available. Very low crowd." if load_val == "Low" else \
+                             "Not too busy. You might get a seat." if load_val == "Medium" else \
+                                 "A bit busy. Stay alert." if load_val == "M-High" else \
+                                     "Very busy. Try taking the next train if possible."
+                     ) + weather_advice
 
     # Neural Path Logic: Use Gemini
     if ai_client:
@@ -632,7 +735,8 @@ def api_plan():
             ai_rec = get_ai_insight(ai_prompt)
             if ai_rec:
                 recommendation = f"{base_load_label}. {ai_rec}"
-        except: pass
+        except:
+            pass
 
     # INTERCHANGE & GUIDE LOGIC
     guides = []
@@ -640,33 +744,34 @@ def api_plan():
 
     for i in range(len(path) - 1):
         s1 = next(s for s in STATIONS_LIST if s['id'] == path[i])
-        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i+1])
+        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i + 1])
         name1 = s1.get('name_alias', s1['name'])
         name2 = s2.get('name_alias', s2['name'])
-        
+
         if name1 == name2 and s1['id'] != s2['id']:
-            next_sid = path[i+2] if i+2 < len(path) else None
+            next_sid = path[i + 2] if i + 2 < len(path) else None
             platform = "?"
             guide = f"Transfer at {name1}"
-            
+
             # Connection Analytics
             reaching_at_raw = reaching_times_map.get(s1['id'])
             connecting_trains = []
             reaching_at_display = "--:--"
-            
+
             if reaching_at_raw:
                 try:
                     rh, rm, rs = map(int, reaching_at_raw.split(':'))
                     reach_dt = now.replace(hour=rh, minute=rm, second=rs, microsecond=0)
                     reaching_at_display = reach_dt.strftime('%I:%M %p')
-                    
+
                     # Next 1 hour from reaching
                     reach_plus_hour = reach_dt + timedelta(hours=1)
                     rph_str = reach_plus_hour.strftime('%H:%M:%S')
-                    
+
                     # Find other lines at this station
-                    other_ids = [s['id'] for s in STATIONS_LIST if (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
-                    
+                    other_ids = [s['id'] for s in STATIONS_LIST if
+                                 (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
+
                     for row in trips:
                         if row['station_id'] in other_ids and reaching_at_raw < row['arrival_time'] < rph_str:
                             t_copy = row.copy()
@@ -676,57 +781,65 @@ def api_plan():
                             t_copy['wait_mins'] = int((t_dt - reach_dt).total_seconds() // 60)
                             connecting_trains.append(t_copy)
                             if len(connecting_trains) >= 3: break
-                except: pass
+                except:
+                    pass
 
             if next_sid:
                 next_s = next(s for s in STATIONS_LIST if s['id'] == next_sid)
                 if name1 == 'Ameerpet':
                     if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R',''))
+                        idx = int(next_s['id'].replace('R', ''))
                         platform = "1 (Towards LB Nagar)" if idx > 11 else "2 (Towards Miyapur)"
-                        if s1['line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
+                        if s1[
+                            'line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
                     elif next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B',''))
+                        idx = int(next_s['id'].replace('B', ''))
                         platform = "3 (Towards Nagole)" if idx > 8 else "4 (Towards Raidurg)"
-                        if s1['line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
+                        if s1[
+                            'line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
                 elif name1 == 'MGBS':
                     if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R',''))
+                        idx = int(next_s['id'].replace('R', ''))
                         platform = "1 (Towards LB Nagar)" if idx > 20 else "2 (Towards Miyapur)"
-                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
+                        if s1[
+                            'line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
                     elif next_s['line'] == 'Green':
                         platform = "3 (Towards JBS Parade Grounds)"
-                        if s1['line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
+                        if s1[
+                            'line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
                 elif name1 == 'Parade Ground':
                     if next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B',''))
+                        idx = int(next_s['id'].replace('B', ''))
                         platform = "3 (Towards Nagole)" if idx > 13 else "4 (Towards Raidurg)"
-                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
+                        if s1[
+                            'line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
                     elif next_s['line'] == 'Green':
-                        idx = int(next_s['id'].replace('G',''))
+                        idx = int(next_s['id'].replace('G', ''))
                         platform = "1 (Towards MGBS)" if idx > 3 else "2 (Towards JBS Parade Grounds)"
-                        if s1['line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
-            
+                        if s1[
+                            'line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
+
             guides.append({
-                'station': name1, 
-                'platform': platform, 
-                'text': guide, 
+                'station': name1,
+                'platform': platform,
+                'text': guide,
                 'reaching_at': reaching_at_display,
                 'connections': connecting_trains
             })
 
     # PROJECTION METRICS
     is_peak_val = "Peak Hour" if (7 <= now.hour <= 10 or 17 <= now.hour <= 21) else "Off-Peak"
-    is_it_hub_val = "High" if any(n in [s['name'] for s in sequence] for n in ['Hitech City', 'Raidurg', 'Madhapur']) else "Normal"
-    
+    is_it_hub_val = "High" if any(
+        n in [s['name'] for s in sequence] for n in ['Hitech City', 'Raidurg', 'Madhapur']) else "Normal"
+
     # Environmental Analytics
-    co2_saved = round(total_km * 0.12, 2) # kg CO2
-    calories = int(total_km * 12 + len(guides) * 25) # Estimated effort
+    co2_saved = round(total_km * 0.12, 2)  # kg CO2
+    calories = int(total_km * 12 + len(guides) * 25)  # Estimated effort
     trees_saved = round(total_km * 0.05, 3)
     one_hour_later = now + timedelta(hours=1)
     now_str = now.strftime('%H:%M:%S')
     oh_str = one_hour_later.strftime('%H:%M:%S')
-    
+
     upcoming_hour = []
     for row in trips:
         if row['station_id'] == start_id and now_str < row['arrival_time'] < oh_str:
@@ -736,7 +849,7 @@ def api_plan():
                 arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
                 diff = (arrival_dt - now).total_seconds()
                 row_copy['eta'] = f"{int(diff // 60):02d}:{int(diff % 60):02d}"
-                
+
                 # Calculate estimated reach time for this specific trip
                 trip_data = [t for t in trips if t['trip_id'] == row['trip_id']]
                 dest_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -749,7 +862,8 @@ def api_plan():
                     row_copy['est_reach'] = (arrival_dt + timedelta(minutes=duration)).strftime('%I:%M %p')
 
                 upcoming_hour.append(row_copy)
-            except: continue
+            except:
+                continue
             if len(upcoming_hour) >= 8: break
 
     # Convert boarding & arrival to 12-hour format
@@ -775,7 +889,8 @@ def api_plan():
         try:
             h, m, s = map(int, u['arrival_time'].split(':'))
             u['arrival_time'] = now.replace(hour=h, minute=m, second=s).strftime('%I:%M %p')
-        except: pass
+        except:
+            pass
 
     return jsonify({
         'sequence': sequence,
@@ -802,14 +917,15 @@ def api_plan():
         }
     })
 
+
 @app.route('/api/live-map')
 def api_live_map():
     trips = ensure_gtfs()
     now_dt = get_app_now()
     now_str = now_dt.strftime('%H:%M:%S')
-    
+
     active_trains = []
-    
+
     # Read trips and group by trip_id
     trips_by_id = {}
     for row in trips:
@@ -817,28 +933,28 @@ def api_live_map():
         if tid not in trips_by_id:
             trips_by_id[tid] = []
         trips_by_id[tid].append(row)
-    
+
     for tid, stops in trips_by_id.items():
         # Sort stops by arrival time
         stops.sort(key=lambda x: x['arrival_time'])
-        
+
         # Find if train is currently between two stops
         for i in range(len(stops) - 1):
             s1 = stops[i]
-            s2 = stops[i+1]
-            
+            s2 = stops[i + 1]
+
             if s1['arrival_time'] <= now_str < s2['arrival_time']:
                 # Calculate progress
                 try:
                     t1_parts = list(map(int, s1['arrival_time'].split(':')))
                     t2_parts = list(map(int, s2['arrival_time'].split(':')))
-                    
+
                     t1 = now_dt.replace(hour=t1_parts[0], minute=t1_parts[1], second=t1_parts[2])
                     t2 = now_dt.replace(hour=t2_parts[0], minute=t2_parts[1], second=t2_parts[2])
-                    
+
                     total_duration = (t2 - t1).total_seconds()
                     elapsed = (now_dt - t1).total_seconds()
-                    
+
                     progress = max(0, min(1, elapsed / total_duration))
 
                     # Calculate speed
@@ -848,7 +964,7 @@ def api_live_map():
                     if st1 and st2 and total_duration > 0:
                         dist = haversine(st1['lat'], st1['lng'], st2['lat'], st2['lng'])
                         speed = (dist / (total_duration / 3600.0))
-                    
+
                     active_trains.append({
                         'trip_id': tid,
                         'line': s1['line'],
@@ -861,11 +977,12 @@ def api_live_map():
                         'final_stop': s1['final_stop'],
                         'speed': round(speed, 1) if speed < 110 else 75
                     })
-                    break # Only one segment per trip
+                    break  # Only one segment per trip
                 except:
                     continue
-                    
+
     return jsonify({'trains': active_trains})
+
 
 # ==========================================
 # 5. UI TEMPLATE (UPGRADED)
@@ -876,11 +993,14 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HydMetro Pro | Intelligence Dashboard</title>
+    <title>HydMetro | Your Metro Guide</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script>
+      // Using custom SVG map, no Google Maps script needed
+    </script>
     <style>
         :root {
             --bg: #f8fafc;
@@ -911,7 +1031,7 @@ HTML_TEMPLATE = """
             box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 10px 15px -3px rgba(0,0,0,0.03);
             transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         .mobile-card {
             border-radius: 1.5rem;
             padding: 20px;
@@ -923,7 +1043,7 @@ HTML_TEMPLATE = """
             padding: 0 20px 140px 20px; 
             min-height: 100vh; 
         }
-        
+
         @media (max-width: 1024px) {
             .main { 
                 padding: 16px; 
@@ -951,7 +1071,7 @@ HTML_TEMPLATE = """
             box-shadow: 0 20px 50px -12px rgba(0,0,0,0.4);
             border: 1px solid rgba(255,255,255,0.08);
         }
-        
+
         .mobile-link {
             display: flex; flex-direction: column; align-items: center; gap: 4px;
             color: #64748b; padding: 12px 2px; border-radius: 32px;
@@ -964,7 +1084,7 @@ HTML_TEMPLATE = """
             font-size: 9px; font-weight: 700; text-transform: uppercase; 
             letter-spacing: 0.05em; opacity: 0.6;
         }
-        
+
         .mobile-link.active { color: white; }
         .mobile-link.active i { opacity: 1; transform: scale(1.1); }
         .mobile-link.active span { opacity: 1; }
@@ -1028,10 +1148,18 @@ HTML_TEMPLATE = """
             box-shadow: inset 0 0 8px rgba(0,255,0,0.1);
         }
 
+        .user-pin-glow {
+            animation: user-sonar 2s infinite;
+        }
+        @keyframes user-sonar {
+            0% { r: 5; opacity: 1; stroke-width: 0; }
+            100% { r: 35; opacity: 0; stroke-width: 20; }
+        }
+
         .user-pin-outer { animation: sonar 2.5s infinite; }
         @keyframes sonar {
             0% { r: 6; opacity: 0.8; }
-            100% { r: 28; opacity: 0; }
+            100% { r: 35; opacity: 0; }
         }
 
         /* Specific Mobile Card Overrides */
@@ -1043,7 +1171,7 @@ HTML_TEMPLATE = """
             position: relative;
             overflow: hidden;
         }
-        
+
         .mobile-action-btn {
             background: white;
             color: #0f172a;
@@ -1136,25 +1264,93 @@ HTML_TEMPLATE = """
             margin-top: 10px;
         }
 
-        /* Live Map Mobile Overlay */
+        .map-line-path {
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            transition: all 0.3s ease;
+        }
+        .station-node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .near-user {
+            stroke-width: 6;
+            stroke: #3b82f6;
+            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
+            animation: station-pulse 2s infinite;
+        }
+        @keyframes station-pulse {
+            0% { r: 8; }
+            50% { r: 12; }
+            100% { r: 8; }
+        }
+        .station-node:hover {
+            r: 10;
+        }
+        .station-label-custom {
+            font-size: 10px;
+            font-weight: 800;
+            fill: #334155;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            text-shadow: 0 0 2px white;
+        }
+        .train-unit {
+            cursor: pointer;
+            transition: transform 0.2s linear;
+        }
+        .map-control-btn {
+            width: 44px;
+            height: 44px;
+            background: white;
+            border: 1px solid #f1f5f9;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+        }
+        .map-control-btn:hover {
+            color: #2563eb;
+            background: #f8fafc;
+            transform: translateY(-2px);
+        }
+        #metro-map-container {
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+        #metro-map-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+            background: radial-gradient(circle at center, #ffffff 0%, #f8fafc 100%);
+        }
+        #metro-map-canvas:active { cursor: grabbing; }
+
+        /* Unified Map Overlay Logic */
         @media (max-width: 1024px) {
             #map-overlay {
                 position: fixed !important;
                 bottom: 0 !important;
-                right: 0 !important;
                 left: 0 !important;
+                right: 0 !important;
                 top: auto !important;
                 width: 100% !important;
-                height: 75vh !important;
+                height: 80vh !important;
                 border-radius: 2.5rem 2.5rem 0 0 !important;
-                padding: 32px 24px !important;
-                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
                 transform: translateY(100%) !important;
-                z-index: 2000 !important;
-                border-top: 1px solid rgba(0,0,0,0.05) !important;
+                z-index: 5500 !important;
                 border-left: none !important;
-                display: flex !important;
-                flex-direction: column !important;
+                border-top: 1px solid rgba(0,0,0,0.05) !important;
+                box-shadow: 0 -20px 40px rgba(0,0,0,0.1) !important;
             }
             #map-overlay.active {
                 transform: translateY(0) !important;
@@ -1169,52 +1365,47 @@ HTML_TEMPLATE = """
             }
         }
 
-        #schematic-container { 
-            transform-origin: 0 0; 
-            will-change: transform;
+        .user-pin-outer {
+            animation: pulse-glow 2s infinite;
+        }
+        @keyframes pulse-glow {
+            0% { r: 8; fill-opacity: 0.6; }
+            100% { r: 24; fill-opacity: 0; }
+        }
+        .station-node {
+            transition: r 0.2s, stroke-width 0.2s;
+            cursor: pointer;
+        }
+        .station-node:hover {
+            r: 10;
+            stroke-width: 5;
         }
 
-        /* Schematic Map Refinements */
-        .station-label-schematic { 
-            font-size: var(--map-label-size, 16px); 
-            font-weight: 1000; 
-            fill: #000000; 
-            pointer-events: none; 
-            text-transform: uppercase; 
-            letter-spacing: 0.05em;
-            paint-order: stroke;
-            stroke: #ffffff;
-            stroke-width: 6px;
-            opacity: 1;
-            transition: opacity 0.3s, font-size 0.2s, stroke-width 0.2s;
-        }
-        .orr-boundary {
-            fill: #fefce8;
-            stroke: #fde68a;
-            stroke-width: 15px;
-            stroke-dasharray: 40,20;
-            opacity: 0.4;
-        }
-        .corridor-tag {
-            font-size: 14px;
-            font-weight: 1000;
-            fill: white;
-            paint-order: stroke;
-            stroke: rgba(0,0,0,0.2);
-            stroke-width: 2px;
-            text-transform: uppercase;
-        }
-        .landmark-label {
-            font-size: 9px;
+        .station-label-custom { 
+            font-size: 11px;
             font-weight: 800;
-            fill: #64748b;
-            letter-spacing: 0.12em;
+            fill: #1e293b;
             text-transform: uppercase;
+            letter-spacing: 0.05em;
             pointer-events: none;
             paint-order: stroke;
             stroke: #ffffff;
-            stroke-width: 2px;
+            stroke-width: 4px;
+            transition: opacity 0.3s;
         }
+
+        .map-line-path {
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: stroke-width 0.2s;
+        }
+
+        .train-unit {
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+            transition: transform 0.1s linear;
+        }
+
         .map-control-btn {
             width: 44px;
             height: 44px;
@@ -1240,7 +1431,7 @@ HTML_TEMPLATE = """
         <div class="max-w-[1400px] mx-auto w-full flex items-center justify-between px-4">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg"><i data-lucide="train-front" size="20"></i></div>
-                <h1 class="text-xl font-black text-slate-900 tracking-tighter">HydMetro Pro</h1>
+                <h1 class="text-xl font-black text-slate-900 tracking-tighter">HydMetro</h1>
             </div>
             <div class="flex items-center gap-4">
                 <div class="hidden lg:flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
@@ -1261,10 +1452,10 @@ HTML_TEMPLATE = """
 
     <div class="mobile-nav">
         <div onclick="showTab('home')" class="mobile-link active" id="mob-home"><i data-lucide="home"></i><span>Home</span></div>
-        <div onclick="showTab('stations')" class="mobile-link" id="mob-stations"><i data-lucide="layout-grid"></i><span>Explore</span></div>
+        <div onclick="showTab('stations')" class="mobile-link" id="mob-stations"><i data-lucide="layout-grid"></i><span>Stations</span></div>
         <div onclick="showTab('tickets')" class="mobile-link mobile-link-cta" id="mob-tickets"><i data-lucide="qr-code"></i><span>Tickets</span></div>
         <div onclick="showTab('routes')" class="mobile-link" id="mob-routes"><i data-lucide="navigation"></i><span>Plan</span></div>
-        <div onclick="showTab('map')" class="mobile-link" id="mob-map"><i data-lucide="map-pinned"></i><span>Tracks</span></div>
+        <div onclick="showTab('map')" class="mobile-link" id="mob-map"><i data-lucide="map-pinned"></i><span>Live Map</span></div>
     </div>
 
     <div class="main" id="main-content">
@@ -1274,27 +1465,53 @@ HTML_TEMPLATE = """
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-lg"><i data-lucide="train-front" size="20"></i></div>
                     <div>
-                        <h2 id="greeting-mob" class="text-xl font-black text-slate-900 tracking-tight">Initializing...</h2>
-                        <p id="near-metro-mob" class="text-[9px] font-black text-blue-600 uppercase tracking-widest">Scanning Network...</p>
+                        <h2 id="greeting-mob" class="text-xl font-black text-slate-900 tracking-tight">Welcome...</h2>
+                        <p id="near-metro-mob" class="text-[9px] font-black text-blue-600 uppercase tracking-widest">Finding stations...</p>
                     </div>
                 </div>
                 <button class="p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 shadow-sm"><i data-lucide="bell" size="20"></i></button>
             </div>
 
+            <!-- New Mobile Pulse Cards -->
+            <div class="lg:hidden grid grid-cols-2 gap-4 mb-8">
+                <div class="glass-card !bg-slate-900 !text-white !p-5 flex flex-col justify-between h-32 relative overflow-hidden">
+                    <div class="absolute -right-4 -top-4 w-20 h-20 bg-blue-500/10 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start relative z-10">
+                        <i data-lucide="map-pin" class="text-blue-400" size="18"></i>
+                        <span class="text-[8px] font-black uppercase tracking-widest text-slate-500">Nearest Metro</span>
+                    </div>
+                    <div class="relative z-10">
+                        <h4 id="near-name-mob-2" class="text-lg font-black tracking-tight truncate">--</h4>
+                        <p id="near-dist-mob-2" class="text-[9px] font-bold text-blue-400 uppercase tracking-widest mt-1">-- km away</p>
+                    </div>
+                </div>
+                <div class="glass-card !p-5 flex flex-col justify-between h-32 border-slate-100 relative overflow-hidden bg-white">
+                    <div class="absolute -right-4 -top-4 w-20 h-20 bg-amber-500/5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start relative z-10">
+                        <i data-lucide="cloud-sun" class="text-amber-500" size="18"></i>
+                        <span class="text-[8px] font-black uppercase tracking-widest text-slate-400">Weather</span>
+                    </div>
+                    <div class="relative z-10">
+                        <h4 id="weather-val-mob" class="text-lg font-black tracking-tight">--°C</h4>
+                        <p id="weather-cond-mob" class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Updating...</p>
+                    </div>
+                </div>
+            </div>
+
             <div id="news-ticker" class="mb-8 overflow-hidden bg-blue-600/5 py-3 border-y border-blue-500/10 rounded-2xl lg:rounded-none">
                 <div class="flex items-center gap-10 animate-ticker whitespace-nowrap">
-                    <span class="text-[9px] font-black uppercase text-blue-600 tracking-[0.3em] flex items-center gap-2"><i data-lucide="megaphone" size="14"></i> System Alert: Normal operations across all sectors.</span>
-                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-[0.3em]">Hitech City expansion project underway.</span>
-                    <span class="text-[9px] font-black uppercase text-blue-600 tracking-[0.3em] flex items-center gap-2"><i data-lucide="zap" size="14"></i> Peak Hours Detected: Expect neural load increase in IT Hub.</span>
-                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-[0.3em]">Contactless QR ticketing now live in all 57 nodes.</span>
+                    <span class="text-[9px] font-black uppercase text-blue-600 tracking-[0.3em] flex items-center gap-2"><i data-lucide="megaphone" size="14"></i> Update: Metro running normally.</span>
+                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-[0.3em]">Hitech City expansion project in progress.</span>
+                    <span class="text-[9px] font-black uppercase text-blue-600 tracking-[0.3em] flex items-center gap-2"><i data-lucide="zap" size="14"></i> Peak Hours: Expect more crowds.</span>
+                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-[0.3em]">QR tickets now live in all 57 stations.</span>
                 </div>
             </div>
 
             <!-- Desktop Header -->
             <header class="hidden lg:flex flex-col lg:flex-row lg:justify-between lg:items-start gap-8 mb-8">
                 <div>
-                    <h2 id="greeting" class="text-4xl lg:text-5xl font-black text-slate-900 mb-2 tracking-tighter italic">Initializing...</h2>
-                    <p id="env-msg" class="text-slate-400 font-bold max-w-sm leading-relaxed uppercase text-[10px] tracking-widest">Neural processing active. Enjoy your commute across the network.</p>
+                    <h2 id="greeting" class="text-4xl lg:text-5xl font-black text-slate-900 mb-2 tracking-tighter italic">Welcome...</h2>
+                    <p id="env-msg" class="text-slate-400 font-bold max-w-sm leading-relaxed uppercase text-[10px] tracking-widest">Live data updated. Enjoy your metro trip.</p>
                 </div>
                 <div class="glass-card py-4 px-8 flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-6 border-slate-200">
                     <div class="flex items-baseline gap-2">
@@ -1310,15 +1527,15 @@ HTML_TEMPLATE = """
                 <div onclick="showTab('map')" class="mobile-hero p-6 !rounded-3xl flex flex-col justify-between h-48 group active:scale-[0.98] transition-transform">
                     <div class="p-3 bg-white/10 w-fit rounded-xl backdrop-blur-md mb-2 border border-white/10"><i data-lucide="map-pinned" size="20"></i></div>
                     <div>
-                        <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Live Feed</p>
-                        <h3 class="text-lg font-black tracking-tight leading-tight">Explore Transit Map</h3>
+                        <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Live Map</p>
+                        <h3 class="text-lg font-black tracking-tight leading-tight">View Metro Map</h3>
                     </div>
                 </div>
                 <div onclick="showTab('routes')" class="glass-card p-6 border-none bg-slate-900 text-white !rounded-3xl flex flex-col justify-between h-48 group active:scale-[0.98] transition-transform shadow-xl shadow-slate-200">
                     <div class="p-3 bg-white/10 w-fit rounded-xl backdrop-blur-md mb-2 border border-blue-500/20"><i data-lucide="search" size="20" class="text-blue-400"></i></div>
                     <div>
-                        <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Architecture</p>
-                        <h3 class="text-lg font-black tracking-tight leading-tight">Plan Your Journey</h3>
+                        <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Trip Planner</p>
+                        <h3 class="text-lg font-black tracking-tight leading-tight">Plan Your Trip</h3>
                     </div>
                 </div>
             </div>
@@ -1334,19 +1551,19 @@ HTML_TEMPLATE = """
                         <div class="relative z-20">
                             <div class="flex items-center gap-3 mb-6 bg-white/10 w-fit px-4 py-2 rounded-2xl border border-white/10 backdrop-blur-md">
                                 <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                                <span class="text-[9px] font-black uppercase tracking-[0.3em] text-blue-400">Satellite Stream Active</span>
+                                <span class="text-[9px] font-black uppercase tracking-[0.3em] text-blue-400">Live Updates Active</span>
                             </div>
-                            
+
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12 items-end">
                                 <div>
                                     <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Your Zone</h4>
-                                    <p id="user-location-text" class="text-2xl lg:text-3xl font-black text-white tracking-tighter mb-1 truncate">Acquiring Fix...</p>
-                                    <p id="near-dist-status" class="text-[10px] font-black uppercase tracking-widest text-blue-400">GPS Syncing...</p>
+                                    <p id="user-location-text" class="text-2xl lg:text-3xl font-black text-white tracking-tighter mb-1 truncate">Finding you...</p>
+                                    <p id="near-dist-status" class="text-[10px] font-black uppercase tracking-widest text-blue-400">Locating...</p>
                                 </div>
                                 <div>
-                                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Atmosphere</h4>
+                                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Weather</h4>
                                     <p id="weather-val" class="text-2xl lg:text-3xl font-black text-white tracking-tighter mb-1 tabular-nums">--°C</p>
-                                    <p id="weather-detail" class="text-[10px] font-black uppercase tracking-widest text-emerald-400">Updating Surface Temp...</p>
+                                    <p id="weather-detail" class="text-[10px] font-black uppercase tracking-widest text-emerald-400">Checking Weather...</p>
                                 </div>
                             </div>
                         </div>
@@ -1357,17 +1574,17 @@ HTML_TEMPLATE = """
                 <div class="lg:col-span-4">
                     <div class="glass-card h-full border-none bg-white p-8 relative overflow-hidden shadow-2xl shadow-slate-200/40 group">
                         <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100"></div>
-                        
+
                         <div class="relative z-10 h-full flex flex-col">
                             <div class="flex justify-between items-start mb-8">
-                                <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Nearest Metro Node</h4>
+                                <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Nearest Metro Station</h4>
                                 <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
                             </div>
 
                             <div class="flex-1 space-y-10">
                                 <div>
                                     <h3 id="near-name" class="text-3xl font-black text-slate-900 tracking-tighter mb-1 truncate">--</h3>
-                                    <p id="near-dist" class="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Vector Radius</p>
+                                    <p id="near-dist" class="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Distance</p>
                                 </div>
 
                                 <div class="space-y-4">
@@ -1381,8 +1598,8 @@ HTML_TEMPLATE = """
                                     <div class="flex items-center gap-4">
                                         <div class="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-emerald-600/60 shadow-sm border border-slate-100"><i data-lucide="train-front" size="18"></i></div>
                                         <div>
-                                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Units</p>
-                                             <span class="text-xs font-black text-slate-800 uppercase tracking-tight"><span id="active-count" class="tabular-nums">--</span> Trains in Motion</span>
+                                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Trains</p>
+                                             <span class="text-xs font-black text-slate-800 uppercase tracking-tight"><span id="active-count" class="tabular-nums">--</span> Trains Running</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1390,7 +1607,7 @@ HTML_TEMPLATE = """
 
                             <div class="mt-10 pt-8 border-t border-slate-100 flex gap-4">
                                 <button onclick="manualRefreshGeo()" class="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl hover:bg-black transition-all flex items-center justify-center gap-2">
-                                    <i data-lucide="refresh-cw" size="12"></i> Re-Sync
+                                    <i data-lucide="refresh-cw" size="12"></i> Refresh
                                 </button>
                                 <button id="nav-btn" onclick="openGoogleMaps()" class="p-4 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all hidden" title="Walking Directions">
                                     <i data-lucide="navigation" size="16"></i>
@@ -1408,7 +1625,7 @@ HTML_TEMPLATE = """
                         <div class="p-6 lg:p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
                             <div class="flex items-center gap-3 lg:gap-5">
                                 <i data-lucide="radio" class="text-blue-600 animate-pulse" size="18"></i>
-                                <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Hub</span></h3>
+                                <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Station</span></h3>
                             </div>
                             <div class="flex gap-2">
                                  <select id="board-station-selector" onchange="manualStationChange()" class="text-[8px] lg:text-[10px] font-black uppercase bg-white border border-slate-200 px-3 lg:px-4 py-1.5 lg:py-2 rounded-lg lg:rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer shadow-sm">
@@ -1421,10 +1638,10 @@ HTML_TEMPLATE = """
                                 <table class="w-full text-left min-w-[300px]">
                                     <thead>
                                         <tr class="text-[8px] lg:text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">
-                                            <th class="pb-4 lg:pb-8">Vector</th>
-                                            <th class="pb-4 lg:pb-8">Node</th>
+                                            <th class="pb-4 lg:pb-8">Route</th>
+                                            <th class="pb-4 lg:pb-8">Station</th>
                                             <th class="pb-4 lg:pb-8">Boarding</th>
-                                            <th class="pb-4 lg:pb-8 text-right">Countdown</th>
+                                            <th class="pb-4 lg:pb-8 text-right">Time Left</th>
                                         </tr>
                                     </thead>
                                     <tbody id="board-rows" class="divide-y divide-slate-50"></tbody>
@@ -1432,19 +1649,19 @@ HTML_TEMPLATE = """
                             </div>
                             <div id="board-loading" class="py-16 lg:py-24 text-center">
                                  <div class="w-8 h-8 lg:w-10 lg:h-10 border-4 border-slate-900 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                                 <p class="text-[8px] lg:text-[10px] font-black uppercase tracking-widest text-slate-400">Syncing Matrix...</p>
+                                 <p class="text-[8px] lg:text-[10px] font-black uppercase tracking-widest text-slate-400">Getting departures...</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Favorite Vectors Section -->
-                    <div id="fav-vectors-section" class="hidden animate-in fade-in duration-1000">
+                    <!-- Saved Routes Section -->
+                    <div id="saved-routes-section" class="hidden animate-in fade-in duration-1000">
                         <div class="flex items-center justify-between mb-6 px-4">
                             <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
-                                <i data-lucide="star" size="14" class="text-amber-500"></i> Frequent Neural Vectors
+                                <i data-lucide="star" size="14" class="text-amber-500"></i> Common Metro Routes
                             </h4>
                         </div>
-                        <div id="fav-vectors-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div id="saved-routes-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <!-- Injected via JS -->
                         </div>
                     </div>
@@ -1464,21 +1681,21 @@ HTML_TEMPLATE = """
                     <div class="glass-card action-card border-none p-10 bg-white overflow-hidden relative shadow-2xl shadow-slate-200/50">
                         <div class="absolute -right-5 -top-5 w-40 h-40 bg-indigo-50 rounded-full blur-[60px]"></div>
                         <i data-lucide="scan" class="mb-8 text-indigo-600" size="32"></i>
-                        <h4 class="text-xl font-black mb-3 relative z-10 tracking-tight text-slate-900">Neural Connect</h4>
-                        <p class="text-xs text-slate-400 mb-10 relative z-10 font-bold uppercase tracking-widest">Recharge your smart matrix card via NFC interface.</p>
-                        <button class="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest">Digital Recharge</button>
+                        <h4 class="text-xl font-black mb-3 relative z-10 tracking-tight text-slate-900">HydMetro Card</h4>
+                        <p class="text-xs text-slate-400 mb-10 relative z-10 font-bold uppercase tracking-widest">Recharge your metro card using your phone.</p>
+                        <button class="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest">Online Recharge</button>
                     </div>
                 </div>
             </div>
 
-            <!-- NETWORK INTELLIGENCE SECTION -->
+            <!-- METRO INFO SECTION -->
             <div class="mb-16">
                 <div class="flex items-center gap-4 mb-8">
                      <div class="h-[1px] flex-1 bg-slate-100"></div>
-                     <h4 class="text-[10px] font-black uppercase tracking-[0.4em] text-slate-300">Network Intelligence</h4>
+                     <h4 class="text-[10px] font-black uppercase tracking-[0.4em] text-slate-300">Metro Info</h4>
                      <div class="h-[1px] flex-1 bg-slate-100"></div>
                 </div>
-                
+
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
                         <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Stations</p>
@@ -1493,7 +1710,7 @@ HTML_TEMPLATE = """
                         <p class="text-2xl font-black text-slate-900 tracking-tight">400k+</p>
                     </div>
                     <div class="glass-card p-6 border-slate-100/50 bg-white/50 text-center">
-                        <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Speed Flux</p>
+                        <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Top Speed</p>
                         <p class="text-2xl font-black text-slate-900 tracking-tight">80 <span class="text-xs">km/h</span></p>
                     </div>
                 </div>
@@ -1505,8 +1722,8 @@ HTML_TEMPLATE = """
                       <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-blue-500"></div><span class="text-[8px] font-black uppercase">Blue</span></div>
                       <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-green-500"></div><span class="text-[8px] font-black uppercase">Green</span></div>
                  </div>
-                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-4">HydMetro Pro Architecture v2.5.2</p>
-                 <p class="text-[8px] font-bold text-slate-300 uppercase tracking-widest leading-relaxed max-w-lg">Satellite synchronized intelligence hub for Hyderabad Metro Network. Unauthorized extraction of neural datasets is strictly monitored.</p>
+                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-4">HydMetro App v2.5.2</p>
+                 <p class="text-[8px] font-bold text-slate-300 uppercase tracking-widest leading-relaxed max-w-lg">Live guide for Hyderabad Metro Network. Unauthorized extraction of app data is strictly monitored.</p>
             </footer>
         </div>
 
@@ -1516,8 +1733,8 @@ HTML_TEMPLATE = """
                 <div class="glass-card bg-white w-full max-w-lg p-0 overflow-hidden shadow-2xl border-none">
                     <div id="modal-header" class="p-8 pb-4 flex justify-between items-start">
                         <div>
-                            <h2 id="modal-title" class="text-2xl font-black text-slate-900 tracking-tight">Interchange Hub</h2>
-                            <p id="modal-subtitle" class="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mt-1">Multi-Level Terminal Guidance</p>
+                            <h2 id="modal-title" class="text-2xl font-black text-slate-900 tracking-tight">Transfer Station</h2>
+                            <p id="modal-subtitle" class="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mt-1">Changing lines guidance</p>
                         </div>
                         <button onclick="closeInterchangeModal()" class="p-2 hover:bg-slate-100 rounded-xl transition-all">
                             <i data-lucide="x" size="20"></i>
@@ -1527,7 +1744,7 @@ HTML_TEMPLATE = """
                         <div id="line-badges" class="flex gap-2 mb-6"></div>
                         <div class="space-y-4">
                             <h4 class="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                <i data-lucide="shuffle" size="14"></i> Transfer Protocol
+                                <i data-lucide="shuffle" size="14"></i> Transfer Guide
                             </h4>
                             <div id="transfer-guidance" class="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-4">
                                 <!-- Guidance steps will be injected here -->
@@ -1546,14 +1763,14 @@ HTML_TEMPLATE = """
 
             <div>
                 <h2 class="text-3xl font-black text-slate-900 tracking-tight">Hyderabad Metro Network</h2>
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time vector synchronization active</p>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Real-time updates active</p>
             </div>
             <div class="flex flex-wrap items-center gap-4">
                 <div class="relative group w-full lg:w-96" id="map-search-container">
                     <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-600 transition-colors">
                         <i data-lucide="search" size="18"></i>
                     </div>
-                    <input type="text" id="map-search" placeholder="Search Neural Node (e.g. Miyapur)..." 
+                    <input type="text" id="map-search" placeholder="Search station (e.g. Miyapur)..." 
                         class="w-full pl-12 pr-12 py-4 bg-white border-2 border-slate-100 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 transition-all shadow-sm"
                         oninput="filterMapStations(this.value)"
                         onfocus="showMapSuggestions(this.value)">
@@ -1576,7 +1793,7 @@ HTML_TEMPLATE = """
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                     </span>
-                    <span class="text-[9px] font-black text-white uppercase tracking-[0.2em] whitespace-nowrap">Neural Sync: Active</span>
+                    <span class="text-[9px] font-black text-white uppercase tracking-[0.2em] whitespace-nowrap">Live Sync: Active</span>
                 </div>
                 <div class="px-4 py-2 bg-white/90 backdrop-blur-md rounded-2xl shadow-xl flex items-center gap-2 border border-slate-100">
                     <i data-lucide="clock" size="12" class="text-blue-500"></i>
@@ -1585,7 +1802,7 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="glass-card p-0 relative h-[600px] lg:h-[800px] overflow-hidden bg-slate-50 border-none shadow-2xl">
-                <div id="map-legend" class="absolute bottom-24 left-6 glass-card p-6 border-none shadow-2xl bg-white/95 backdrop-blur-xl hidden lg:block z-50">
+                <div id="map-legend" class="absolute bottom-24 left-6 glass-card p-6 border-none shadow-2xl bg-white/95 backdrop-blur-xl hidden lg:block z-[60]">
                     <h5 class="text-[10px] font-black uppercase tracking-[0.2em] mb-4 text-slate-400">Map Legend</h5>
                     <div class="space-y-3">
                         <div class="flex items-center gap-3">
@@ -1596,50 +1813,36 @@ HTML_TEMPLATE = """
                             <div class="w-4 h-1 bg-blue-500 rounded-full"></div>
                             <span class="text-[9px] font-bold text-slate-700 uppercase">Blue Line (Raidurg ↔ Nagole)</span>
                         </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-4 h-1 bg-green-500 rounded-full"></div>
+                            <span class="text-[9px] font-bold text-slate-700 uppercase">Green Line (JBS ↔ MGBS)</span>
+                        </div>
                     </div>
                 </div>
 
-                <div id="station-tooltip" class="station-tooltip"></div>
-                <div id="schematic-viewport" class="absolute inset-0 w-full h-full overflow-hidden">
-                    <div id="schematic-container">
-                        <svg id="metro-svg" viewBox="0 0 2400 1600" class="w-full h-full text-white">
-                            <!-- Background layer -->
-                            <rect width="2400" height="1600" fill="transparent" />
-                            
-                            <defs>
-                                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-                                    <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
-                                </marker>
-                                <filter id="labelShadow" x="-20%" y="-20%" width="140%" height="140%">
-                                    <feGaussianBlur in="SourceAlpha" stdDeviation="1" />
-                                    <feOffset dx="0" dy="1" result="offsetblur" />
-                                    <feMerge> 
-                                        <feMergeNode />
-                                        <feMergeNode in="SourceGraphic" /> 
-                                    </feMerge>
-                                </filter>
-                            </defs>
+                <div class="absolute top-6 right-6 flex flex-col gap-3 z-[60]">
+                    <button onclick="mapZoom(1.2)" class="map-control-btn" title="Zoom In"><i data-lucide="zoom-in"></i></button>
+                    <button onclick="mapZoom(0.8)" class="map-control-btn" title="Zoom Out"><i data-lucide="zoom-out"></i></button>
+                    <button onclick="resetMap()" class="map-control-btn" title="Reset View"><i data-lucide="maximize"></i></button>
+                    <button onclick="locateMeOnMap()" class="map-control-btn" title="Find My Location"><i data-lucide="locate"></i></button>
+                </div>
 
-                            <!-- Landmarks layer -->
-                            <g id="svg-landmarks"></g>
-
-                            <!-- Lines layer -->
-                            <g id="svg-lines"></g>
-                            
-                            <!-- Stations layer -->
-                            <g id="svg-stations"></g>
-                            
-                            <!-- Trains layer -->
-                            <g id="svg-trains"></g>
-                        </svg>
-                    </div>
+                <div id="metro-map-container" class="absolute inset-0 w-full h-full overflow-hidden">
+                    <svg id="metro-map-canvas" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice">
+                        <g id="map-viewport">
+                            <g id="map-lines"></g>
+                            <g id="map-stations"></g>
+                            <g id="map-labels"></g>
+                            <g id="map-trains"></g>
+                        </g>
+                    </svg>
                 </div>
 
                 <div id="map-overlay" class="absolute top-0 right-0 h-full w-full lg:w-[400px] z-[2000] transition-transform duration-500 ease-in-out bg-white shadow-[-20px_0_50px_-10px_rgba(0,0,0,0.1)] border-l border-slate-100 lg:rounded-none">
                     <div class="h-full flex flex-col p-6 lg:p-10 overflow-hidden relative">
                         <!-- Mobile Sheet Handle -->
                         <div class="lg:hidden w-12 h-1 bg-slate-200 rounded-full mx-auto mb-8 shrink-0"></div>
-                        
+
                         <div class="absolute top-6 right-6 lg:top-8 lg:right-8 z-20">
                             <button onclick="closeOverlay()" class="p-3 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-2xl transition-colors">
                                 <i data-lucide="x" size="20"></i>
@@ -1658,18 +1861,26 @@ HTML_TEMPLATE = """
                         </div>
 
                         <div class="flex-1 overflow-y-auto space-y-10 scrollbar-hide">
+                            <!-- About this Area Section -->
+                            <div id="ov-desc-container" class="hidden">
+                                <h5 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <i data-lucide="info" size="12"></i> About this Area
+                                </h5>
+                                <p id="ov-description" class="text-[11px] font-medium text-slate-600 leading-relaxed bg-slate-50 p-5 rounded-2xl border border-slate-100 italic"></p>
+                            </div>
+
                             <!-- Amenities Section -->
                             <div>
                                 <h5 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                                    <i data-lucide="layout-grid" size="12"></i> Hub Infrastructure
+                                    <i data-lucide="layout-grid" size="12"></i> Station Facilities
                                 </h5>
                                 <div id="ov-amenities" class="grid grid-cols-2 gap-3"></div>
                             </div>
-                            
+
                             <!-- Real-time Departures Section -->
                             <div>
                                 <h5 class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-6 flex items-center gap-2">
-                                    <i data-lucide="radio" size="12" class="animate-pulse"></i> Neural Flux (Live)
+                                    <i data-lucide="radio" size="12" class="animate-pulse"></i> Live Departures
                                 </h5>
                                 <div id="ov-trains" class="space-y-3">
                                     <!-- JS Injected -->
@@ -1691,13 +1902,13 @@ HTML_TEMPLATE = """
         <div id="tab-routes" class="tab-content">
             <div class="max-w-4xl mx-auto">
                 <div class="text-center lg:text-left mb-8 px-4">
-                   <h2 class="text-3xl lg:text-5xl font-black tracking-tight mb-1 text-slate-900 italic">Neural Path Architect</h2>
+                   <h2 class="text-3xl lg:text-5xl font-black tracking-tight mb-1 text-slate-900 italic">Plan Your Trip</h2>
                    <div class="flex items-center justify-center lg:justify-start gap-2">
                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                       <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Optimized Network Synchrony</p>
+                       <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Optimized Metro Route</p>
                    </div>
                 </div>
-                
+
                 <div id="planner-input-area" class="glass-card border-none bg-white p-6 lg:p-12 relative overflow-hidden mb-8 !rounded-[2.5rem]">
                     <div class="grid grid-cols-1 gap-6 relative z-10">
                         <div class="space-y-3">
@@ -1716,7 +1927,7 @@ HTML_TEMPLATE = """
                         </div>
 
                         <div class="space-y-3">
-                            <label class="text-[10px] font-black text-slate-400 uppercase block tracking-widest pl-2">Destination Node</label>
+                            <label class="text-[10px] font-black text-slate-400 uppercase block tracking-widest pl-2">Destination Station</label>
                             <div class="relative">
                                 <div class="absolute left-6 top-1/2 -translate-y-1/2 text-emerald-500"><i data-lucide="map-pin" size="20"></i></div>
                                 <select id="end-st" class="w-full pl-16 pr-8 py-6 bg-slate-50 border border-slate-100 rounded-[28px] outline-none focus:ring-4 focus:ring-emerald-500/10 font-bold appearance-none text-slate-900 text-lg"></select>
@@ -1735,8 +1946,8 @@ HTML_TEMPLATE = """
                 <div id="route-output" class="hidden space-y-6 pb-12">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-3">
-                            <button onclick="saveCurrentVector()" id="save-vector-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">
-                                <i data-lucide="star" size="14"></i> Save Vector
+                            <button onclick="saveCurrentVector()" id="save-route-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">
+                                <i data-lucide="star" size="14"></i> Save Route
                             </button>
                             <button onclick="shareRoute()" class="p-3 bg-slate-100 rounded-2xl text-slate-400 hover:text-slate-600 transition-all"><i data-lucide="share-2" size="18"></i></button>
                         </div>
@@ -1751,7 +1962,7 @@ HTML_TEMPLATE = """
                         <div class="glass-card md:col-span-1 border-none bg-slate-50 p-6 flex flex-col gap-4 shadow-sm border border-slate-100">
                             <div class="flex items-center gap-4">
                                 <div class="p-2.5 bg-slate-900 text-white rounded-xl"><i data-lucide="cpu" size="16"></i></div>
-                                <h5 class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Neural Path Logic</h5>
+                                <h5 class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Route Advice</h5>
                             </div>
                             <p id="route-rec" class="text-[13px] font-bold text-slate-700 italic pr-2 leading-relaxed">--</p>
                         </div>
@@ -1799,7 +2010,7 @@ HTML_TEMPLATE = """
                                 <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-8 text-center lg:text-left">
                                     <div>
                                         <p id="route-dur" class="text-4xl lg:text-6xl font-black leading-none tabular-nums tracking-tighter">--</p>
-                                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mt-5">Transit Time</p>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mt-5">Travel Time</p>
                                     </div>
                                     <div>
                                         <p id="route-fare" class="text-4xl lg:text-6xl font-black leading-none tabular-nums tracking-tighter">₹--</p>
@@ -1814,7 +2025,7 @@ HTML_TEMPLATE = """
                         </div>
                         <div class="px-10 py-6 bg-slate-50 border-b border-slate-100 flex justify-between">
                              <div class="flex items-center gap-2"><i data-lucide="layers" class="text-slate-400" size="14"></i> <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Optimized Route | <span id="route-dist">0</span> KM Total</span></div>
-                             <div class="flex items-center gap-2"><i data-lucide="zap" class="text-green-500" size="14"></i> <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Neural Sync</span></div>
+                             <div class="flex items-center gap-2"><i data-lucide="zap" class="text-green-500" size="14"></i> <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Live Sync</span></div>
                         </div>
                         <div class="p-10 bg-white">
                             <div id="route-seq" class="border-l-2 border-slate-100 ml-5 pl-10 space-y-8 py-2"></div>
@@ -1826,17 +2037,17 @@ HTML_TEMPLATE = """
                                 <i data-lucide="clock" size="14" class="text-blue-500"></i> Next 1 Hour Arriving Trains
                              </h4>
                              <div id="schedule-list" class="space-y-4">
-                                 <p class="text-xs font-bold text-slate-300 italic">Finding viable transit vectors...</p>
+                                 <p class="text-xs font-bold text-slate-300 italic">Finding best routes...</p>
                              </div>
                         </div>
                     </div>
 
-                    <!-- Digital Ticket & Payment Hub -->
+                    <!-- Ticket & Payment Center -->
                     <div class="glass-card p-10 border-none bg-slate-900 text-white relative overflow-hidden">
                         <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl"></div>
                         <div class="flex items-center gap-4 mb-6 relative z-10">
                             <div class="p-2 bg-white/10 rounded-xl"><i data-lucide="ticket" size="16"></i></div>
-                            <h5 class="text-[10px] font-black uppercase tracking-widest">Secure Digital Ticket</h5>
+                            <h5 class="text-[10px] font-black uppercase tracking-widest">Your Ticket</h5>
                         </div>
                         <p class="text-xs text-white/60 mb-8 relative z-10 font-bold opacity-80 uppercase tracking-widest">Instant checkout via UPI. Your ticket will be issued upon successful payment.</p>
                         <div class="space-y-4 relative z-10">
@@ -1865,9 +2076,9 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
 
-                <div id="route-empty" class="glass-card flex flex-col items-center justify-center py-32 text-slate-300 border-dashed border-2 border-slate-200">
-                    <i data-lucide="cpu" size="48" class="mb-4 opacity-20"></i><p class="font-bold text-slate-400 uppercase text-[10px] tracking-widest">Engine Idle. Awaiting logic trigger.</p>
-                </div>
+                    <div id="route-empty" class="glass-card flex flex-col items-center justify-center py-32 text-slate-300 border-dashed border-2 border-slate-200">
+                        <i data-lucide="search" size="48" class="mb-4 opacity-20"></i><p class="font-bold text-slate-400 uppercase text-[10px] tracking-widest">Select stations to plan your trip.</p>
+                    </div>
             </div>
         </div>
 
@@ -1875,26 +2086,26 @@ HTML_TEMPLATE = """
             <div class="max-w-lg mx-auto">
                 <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
                    <div class="text-center lg:text-left">
-                      <h2 class="text-3xl font-black tracking-tight mb-1 text-slate-900 italic uppercase">Digital Vault</h2>
-                      <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Secure Journey Vectors</p>
+                      <h2 class="text-3xl font-black tracking-tight mb-1 text-slate-900 italic uppercase">My Tickets</h2>
+                      <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Metro Trip History</p>
                    </div>
                 </div>
 
                 <div class="mb-10">
-                    <h4 class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-6 pl-2">In-Flight Terminal Pass</h4>
+                    <h4 class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-6 pl-2">Active Ticket</h4>
                     <div id="active-ticket-container" class="space-y-6">
                         <!-- Active ticket injected here -->
                     </div>
                 </div>
 
                 <div>
-                    <h4 class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-6 pl-2">Archived Records</h4>
+                    <h4 class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-6 pl-2">Past Trips</h4>
                     <div id="trip-history" class="space-y-4">
                         <!-- History injected here -->
                     </div>
                     <div id="history-empty" class="py-16 text-center flex flex-col items-center justify-center text-slate-300 bg-white rounded-[2rem] border border-slate-100">
                         <i data-lucide="folder-clock" size="32" class="mb-4 opacity-10 text-slate-400"></i>
-                        <p class="text-[9px] font-black uppercase tracking-widest">Log is clear</p>
+                        <p class="text-[9px] font-black uppercase tracking-widest">Nothing here yet</p>
                     </div>
                 </div>
             </div>
@@ -1904,8 +2115,8 @@ HTML_TEMPLATE = """
         <div id="tab-stations" class="tab-content">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
                 <div class="text-center lg:text-left">
-                   <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900 italic uppercase">Network Directory</h2>
-                   <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Explore all nodes and available facilities</p>
+                   <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900 italic uppercase">Metro Directory</h2>
+                   <p id="stations-dir-subtitle" class="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Explore all stations and facilities</p>
                 </div>
                 <div class="flex flex-col sm:flex-row items-center gap-4">
                     <div class="relative w-full sm:w-64">
@@ -1931,8 +2142,8 @@ HTML_TEMPLATE = """
                 <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
                     <div class="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/30"><i data-lucide="message-square" size="32"></i></div>
                     <div>
-                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Sentiment Engine</h2>
-                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Your input optimizes the neural network</p>
+                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Help & Feedback</h2>
+                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Your feedback helps us improve the network</p>
                     </div>
                 </div>
             </div>
@@ -1941,9 +2152,9 @@ HTML_TEMPLATE = """
                 <div class="lg:col-span-5">
                     <div class="glass-card border-none shadow-2xl bg-white p-10 relative overflow-hidden group">
                         <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100/50"></div>
-                        
-                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-10 relative z-10">Neural Input Form</h4>
-                        
+
+                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-10 relative z-10">Feedback Form</h4>
+
                         <div class="space-y-8 relative z-10">
                             <div class="space-y-3">
                                 <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sentiment Rating</label>
@@ -1956,35 +2167,35 @@ HTML_TEMPLATE = """
                             </div>
 
                             <div class="space-y-3">
-                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Log Category</label>
+                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Feedback Category</label>
                                 <select id="feedback-cat" class="w-full p-5 bg-slate-50 border-2 border-transparent rounded-[24px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm appearance-none cursor-pointer">
-                                    <option>System Experience</option>
+                                    <option>General Experience</option>
                                     <option>Network Accuracy</option>
-                                    <option>Neural Timing</option>
-                                    <option>Feature Matrix</option>
+                                    <option>Train Timing</option>
+                                    <option>App Features</option>
                                 </select>
                             </div>
 
                             <div class="space-y-3">
-                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Transmission Data</label>
-                                <textarea id="feedback-msg" rows="4" class="w-full p-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm resize-none" placeholder="Describe your experience across the network..."></textarea>
+                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Your Message</label>
+                                <textarea id="feedback-msg" rows="4" class="w-full p-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm resize-none" placeholder="Describe your experience with the metro..."></textarea>
                             </div>
 
                             <button onclick="submitFeedback()" class="w-full py-6 bg-slate-900 text-white font-black rounded-[30px] text-[11px] uppercase tracking-[0.3em] shadow-2xl hover:bg-black transition-all flex items-center justify-center gap-3">
-                                <i data-lucide="send" size="14"></i> Execute Transmission
+                                <i data-lucide="send" size="14"></i> Send Message
                             </button>
                         </div>
                     </div>
                 </div>
                 <div class="lg:col-span-7">
                     <div class="glass-card border-none bg-slate-50/50 p-10 min-h-[600px] rounded-[40px]">
-                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-10">Recent Transmissions (Local Matrix)</h4>
+                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-10">Recent Feedback</h4>
                         <div id="feedback-history" class="space-y-6">
                             <!-- Injected by JS -->
                         </div>
                         <div id="feedback-empty" class="py-32 text-center flex flex-col items-center justify-center text-slate-300">
                             <div class="p-6 bg-white rounded-full mb-6 border border-slate-100"><i data-lucide="archive" size="32" class="opacity-10"></i></div>
-                            <p class="text-[10px] font-black uppercase tracking-widest">Matrix log is stable and empty</p>
+                            <p class="text-[10px] font-black uppercase tracking-widest">No history yet</p>
                         </div>
                     </div>
                 </div>
@@ -1996,503 +2207,225 @@ HTML_TEMPLATE = """
         const stations = {{ ALL_STATIONS | tojson }};
         const connections = {{ CONNECTIONS | tojson }};
         const landmarksData = {{ LANDMARKS | tojson }};
-        let trainStates = new Map(); // Store live train data for smooth interpolation
-        let trainAnimationId = null;
+        let trainStates = new Map(); 
 
-        let schematicZoom = 1;
-        let schematicPan = { x: 0, y: 0 };
+        let mapViewport = { x: 0, y: 0, scale: 1 };
         let isDragging = false;
         let lastMousePos = { x: 0, y: 0 };
 
-        // Global Projection Config
-        const orrMinLat = 17.15, orrMaxLat = 17.65;
-        const orrMinLng = 78.18, orrMaxLng = 78.75;
-        const width = 2400, height = 1600, padding = 150;
+        function resetMap() {
+            mapViewport = { x: 0, y: 0, scale: 1 };
+            applyMapTransform();
+            closeOverlay();
+        }
 
-        const project = (lat, lng) => ({
-            x: padding + ((lng - orrMinLng) / (orrMaxLng - orrMinLng)) * (width - 2 * padding),
-            y: padding + (1 - (lat - orrMinLat) / (orrMaxLat - orrMinLat)) * (height - 2 * padding)
-        });
+        function mapZoom(factor) {
+            mapViewport.scale *= factor;
+            mapViewport.scale = Math.max(0.2, Math.min(10, mapViewport.scale));
+            applyMapTransform();
+        }
 
-        function initSchematicMap() {
-            const viewport = document.getElementById('schematic-viewport');
-            const svg = document.getElementById('metro-svg');
-            const linesG = document.getElementById('svg-lines');
-            const stationsG = document.getElementById('svg-stations');
-            const landmarksG = document.getElementById('svg-landmarks');
-            const tooltip = document.getElementById('station-tooltip');
-
-            // Draw ORR Boundary
-            const orrPoints = [];
-            for(let a=0; a<=360; a+=5) {
-                const ang = a * Math.PI / 180;
-                const lat = 17.40 + 0.23 * Math.sin(ang);
-                const lng = 78.46 + 0.27 * Math.cos(ang);
-                const p = project(lat, lng);
-                orrPoints.push(`${p.x},${p.y}`);
+        function applyMapTransform() {
+            const viewportGroup = document.getElementById('map-viewport');
+            if (viewportGroup) {
+                viewportGroup.setAttribute('transform', `translate(${mapViewport.x}, ${mapViewport.y}) scale(${mapViewport.scale})`);
             }
-            const orrPath = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-            orrPath.setAttribute("points", orrPoints.join(" "));
-            orrPath.setAttribute("class", "orr-boundary");
-            svg.prepend(orrPath);
 
-            // 4. Add Corridor Tags
-            const corridorTags = [
-                { name: 'Corridor I', x: project(17.498, 78.33).x, y: project(17.498, 78.33).y, color: '#ef4444' },
-                { name: 'Corridor I', x: project(17.34, 78.56).x, y: project(17.34, 78.56).y, color: '#ef4444' },
-                { name: 'Corridor II', x: project(17.458, 78.51).x, y: project(17.458, 78.51).y, color: '#22c55e' },
-                { name: 'Corridor III', x: project(17.453, 78.36).x, y: project(17.453, 78.36).y, color: '#3b82f6' },
-                { name: 'Corridor III', x: project(17.385, 78.57).x, y: project(17.385, 78.57).y, color: '#3b82f6' }
-            ];
-
-            // Map standard lat/lng to SVG space
-            stations.forEach(s => {
-                if (s.lat && s.lng) {
-                    const coords = project(s.lat, s.lng);
-                    s.x = coords.x;
-                    s.y = coords.y;
-                }
+            const labels = document.querySelectorAll('.station-label-custom');
+            labels.forEach(l => {
+                l.style.opacity = mapViewport.scale > 0.8 ? '1' : '0.2';
             });
+        }
 
-            corridorTags.forEach(tag => {
-                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                
-                text.textContent = tag.name;
-                text.setAttribute("x", tag.x);
-                text.setAttribute("y", tag.y);
-                text.setAttribute("class", "corridor-tag");
-                text.setAttribute("text-anchor", "middle");
-                
-                // Add background rect
-                rect.setAttribute("fill", tag.color);
-                rect.setAttribute("rx", "6");
-                rect.setAttribute("opacity", "0.9");
-                
-                landmarksG.appendChild(g);
-                g.appendChild(rect);
-                g.appendChild(text);
-                
-                // Adjust rect size to text
-                const bbox = text.getBBox();
-                rect.setAttribute("x", bbox.x - 10);
-                rect.setAttribute("y", bbox.y - 4);
-                rect.setAttribute("width", bbox.width + 20);
-                rect.setAttribute("height", bbox.height + 8);
-            });
+        function project(lat, lng) {
+            const minLat = 17.32, maxLat = 17.52;
+            const minLng = 78.32, maxLng = 78.60;
+            const x = ((lng - minLng) / (maxLng - minLng)) * 1000;
+            const y = 1000 - (((lat - minLat) / (maxLat - minLat)) * 1000);
+            return { x, y };
+        }
 
-            // Draw Landmarks
-            landmarksData.forEach(l => {
-                const coords = project(l.lat, l.lng);
-                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                g.setAttribute("class", "landmark-node");
-                
-                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                circle.setAttribute("cx", coords.x);
-                circle.setAttribute("cy", coords.y);
-                circle.setAttribute("r", "5");
-                circle.setAttribute("fill", "#64748b");
-                circle.setAttribute("opacity", "0.4");
-                
-                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                text.setAttribute("x", coords.x + 8);
-                text.setAttribute("y", coords.y + 4);
-                text.setAttribute("class", "landmark-label");
-                text.textContent = l.name;
-                
-                g.appendChild(circle);
-                g.appendChild(text);
-                landmarksG.appendChild(g);
-            });
+        function initCustomMetroMap() {
+            const svg = document.getElementById('metro-map-canvas');
+            const linesGroup = document.getElementById('map-lines');
+            const stationsGroup = document.getElementById('map-stations');
+            const labelsGroup = document.getElementById('map-labels');
 
-            // 1. Draw Professional Metro \"Track\" Lines
             Object.entries(connections).forEach(([line, sidList]) => {
                 const color = line === 'Red' ? '#ef4444' : line === 'Blue' ? '#3b82f6' : '#22c55e';
-                const seq = sidList.map(sid => stations.find(s => s.id === sid)).filter(s => s);
-                if (seq.length < 2) return;
-
-                let pathData = `M ${seq[0].x} ${seq[0].y}`;
-                seq.slice(1).forEach(s => {
-                    pathData += ` L ${s.x} ${s.y}`;
+                let pathD = "";
+                sidList.forEach((sid, idx) => {
+                    const s = stations.find(st => st.id === sid);
+                    if (s) {
+                        const pt = project(s.lat, s.lng);
+                        pathD += (idx === 0 ? "M " : " L ") + `${pt.x} ${pt.y}`;
+                    }
                 });
 
-                // Track Bed (Outer)
-                const trackBed = document.createElementNS(\"http://www.w3.org/2000/svg\", \"path\");
-                trackBed.setAttribute(\"d\", pathData);
-                trackBed.setAttribute(\"stroke\", \"rgba(255,255,255,0.1)\");
-                trackBed.setAttribute(\"stroke-width\", \"24\");
-                trackBed.setAttribute(\"fill\", \"none\");
-                trackBed.setAttribute(\"stroke-linecap\", \"round\");
-                trackBed.setAttribute(\"stroke-linejoin\", \"round\");
-                linesG.appendChild(trackBed);
-
-                // Core Line
-                const path = document.createElementNS(\"http://www.w3.org/2000/svg\", \"path\");
-                path.setAttribute(\"d\", pathData);
-                path.setAttribute(\"class\", \"metro-line\");
-                path.setAttribute(\"stroke\", color);
-                path.setAttribute(\"fill\", \"none\");
-                linesG.appendChild(path);
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", pathD);
+                path.setAttribute("class", "map-line-path");
+                path.setAttribute("stroke", color);
+                path.setAttribute("stroke-width", "8");
+                linesGroup.appendChild(path);
             });
 
-            // 2. Add Metro Stations
-            stations.forEach((s, idx) => {
+            stations.forEach(s => {
+                const pt = project(s.lat, s.lng);
                 const color = s.line === 'Red' ? '#ef4444' : s.line === 'Blue' ? '#3b82f6' : '#22c55e';
-                
-                const g = document.createElementNS(\"http://www.w3.org/2000/svg\", \"g\");
-                g.setAttribute(\"class\", \"station-node group\");
-                g.setAttribute(\"id\", `node-${s.id}`);
-                
                 const isInterchange = ['Ameerpet', 'MG Bus Station', 'Parade Ground'].includes(s.name);
-                if (isInterchange) g.classList.add('interchange');
 
                 const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                circle.setAttribute("cx", s.x);
-                circle.setAttribute("cy", s.y);
-                circle.setAttribute("r", isInterchange ? 14 : 9);
+                circle.setAttribute("cx", pt.x);
+                circle.setAttribute("cy", pt.y);
+                circle.setAttribute("r", isInterchange ? "8" : "6");
+                circle.setAttribute("fill", "#ffffff");
                 circle.setAttribute("stroke", color);
-                circle.setAttribute("fill", "white");
-                circle.setAttribute("stroke-width", "5");
+                circle.setAttribute("stroke-width", "3");
+                circle.setAttribute("class", "station-node");
+                circle.onclick = () => handleStationInteraction(s);
+                stationsGroup.appendChild(circle);
 
-                const text = document.createElementNS(\"http://www.w3.org/2000/svg\", \"text\");
-                
-                // Directional Labeling Logic for maximum clarity (Schematic Standard)
-                let xOff = 22;
-                let yOff = -22;
-                let rot = -45;
-                let anchor = "start";
+                const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                const blueLeft = s.line === 'Blue' && ['B11', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'].includes(s.id);
+                const redLeft = s.line === 'Red' && ['R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22'].includes(s.id);
+                const onLeft = blueLeft || redLeft;
 
-                const sidNum = parseInt(s.id.substring(1));
+                const lx = pt.x + (onLeft ? -12 : 12);
+                const ly = pt.y + 4;
 
-                if (s.line === 'Blue') {
-                    if (sidNum < 14) { 
-                        // Raidurg to Ameerpet: Labels ABOVE-LEFT
-                        xOff = -25;
-                        yOff = -25;
-                        rot = -45;
-                        anchor = "end";
-                    } else {
-                        // Nagole to Ameerpet: Labels ABOVE-RIGHT
-                        xOff = 25;
-                        yOff = -25;
-                        rot = -45;
-                        anchor = "start";
-                    }
-                } else if (s.line === 'Red') {
-                    if (sidNum < 11) { 
-                        // Miyapur to Ameerpet: Labels TOP-LEFT
-                        xOff = -25;
-                        yOff = -25;
-                        rot = -45;
-                        anchor = "end";
-                    } else {
-                        // Ameerpet to LB Nagar: Labels BOTTOM-RIGHT
-                        xOff = 25;
-                        yOff = 25;
-                        rot = -45;
-                        anchor = "start";
-                    }
-                } else if (s.line === 'Green') {
-                    xOff = 30;
-                    yOff = 0;
-                    rot = 0;
-                    anchor = "start";
+                label.setAttribute("x", lx);
+                label.setAttribute("y", ly);
+                if (onLeft) label.setAttribute("text-anchor", "end");
+
+                // Specific rotations
+                if (s.id === 'B11') { // Rasoolpura
+                    label.setAttribute("transform", `rotate(20, ${lx}, ${ly})`);
+                } else if (s.id === 'R3') { // KPHB (30 deg left)
+                    label.setAttribute("transform", `rotate(-30, ${lx}, ${ly})`);
+                } else if (s.id === 'B12') { // Prakash Nagar
+                    label.setAttribute("transform", `rotate(30, ${lx}, ${ly})`);
                 }
 
-                if (isInterchange) {
-                    xOff = 0;
-                    yOff = -45;
-                    rot = 0;
-                    anchor = "middle";
-                }
-
-                // Substantial stagger only for dense segments to avoid overlaps
-                if (!isInterchange) {
-                    const isEven = sidNum % 2 === 0;
-                    if (s.line === 'Red' && sidNum < 15) {
-                        // Dense part of Red line
-                        yOff = isEven ? -45 : -25;
-                        xOff = isEven ? -45 : -25;
-                    } else if (s.line === 'Blue' && sidNum > 15) {
-                        // Dense part of Blue line
-                        yOff = isEven ? -45 : -25;
-                        xOff = isEven ? 45 : 25;
-                    }
-                }
-
-                const labelX = s.x + xOff;
-                const labelY = s.y + yOff;
-                text.setAttribute("x", labelX);
-                text.setAttribute("y", labelY);
-                text.setAttribute("text-anchor", anchor);
-                text.setAttribute("class", "station-label-schematic");
-                text.setAttribute("filter", "url(#labelShadow)");
-                text.setAttribute("transform", `rotate(${rot}, ${labelX}, ${labelY})`);
-                text.textContent = s.name;
-
-                // Add Arrow/Indicator Line (Leader line for labels)
-                if (xOff !== 0 || yOff !== 0) {
-                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                    const dist = Math.sqrt(xOff * xOff + yOff * yOff);
-                    const nx = xOff / dist;
-                    const ny = yOff / dist;
-                    
-                    // Leader starts slightly offset from text to leave breathing room
-                    const rText = 8;
-                    const rStation = isInterchange ? 18 : 12;
-                    
-                    const x1 = s.x + xOff - nx * rText;
-                    const y1 = s.y + yOff - ny * rText;
-                    const x2 = s.x + nx * rStation;
-                    const y2 = s.y + ny * rStation;
-
-                    line.setAttribute("x1", x1);
-                    line.setAttribute("y1", y1);
-                    line.setAttribute("x2", x2);
-                    line.setAttribute("y2", y2);
-                    line.setAttribute("stroke", "#94a3b8");
-                    line.setAttribute("stroke-width", "1.5");
-                    line.setAttribute("marker-end", "url(#arrowhead)");
-                    line.setAttribute("stroke-dasharray", "4,2"); 
-                    line.setAttribute("opacity", "0.5");
-                    g.appendChild(line);
-                }
-
-                // Add Icons for key stations (Railway/Hospital/etc)
-                const railwayStations = ['Secunderabad East', 'Begumpet', 'Nampally', 'Malakpet', 'Bharat Nagar', 'Hitech City', 'Kacheguda'];
-                if (railwayStations.some(rs => s.name.includes(rs))) {
-                    const iconG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                    // Simple Train Icon SVG representation
-                    iconG.innerHTML = `<rect x="${s.x + 15}" y="${s.y - 35}" width="16" height="16" rx="2" fill="white" opacity="0.8"/><path d="M ${s.x + 19} ${s.y - 31} L ${s.x + 27} ${s.y - 31} L ${s.x + 27} ${s.y - 23} L ${s.x + 19} ${s.y - 23} Z" fill="#0f172a" scale="0.5"/>`;
-                    g.appendChild(iconG);
-                }
-
-                g.appendChild(circle);
-                g.appendChild(text);
-                
-                g.onclick = () => handleStationInteraction(s);
-                
-                // Hover Tooltip logic
-                g.onmouseenter = (e) => {
-                    tooltip.style.display = 'block';
-                    tooltip.innerHTML = `
-                        <div class=\"flex items-center gap-2 mb-2\">
-                            <div class=\"w-2 h-2 rounded-full\" style=\"background: ${color}\"></div>
-                            <h4 class=\"font-black text-xs uppercase\">${s.name}</h4>
-                        </div>
-                        <div class=\"space-y-1 opacity-80 uppercase text-[8px] font-bold tracking-widest\">
-                            ${(s.amenities || ['Express Check-in', 'Smart Parking']).map(a => `<div>• ${a}</div>`).join('')}
-                        </div>
-                    `;
-                };
-                g.onmousemove = (e) => {
-                    const rect = viewport.getBoundingClientRect();
-                    tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
-                    tooltip.style.top = (e.clientY - rect.top + 15) + 'px';
-                };
-                g.onmouseleave = () => { tooltip.style.display = 'none'; };
-
-                stationsG.appendChild(g);
+                label.setAttribute("class", "station-label-custom");
+                label.textContent = s.name;
+                labelsGroup.appendChild(label);
             });
 
-            // Pan & Zoom Controls
-            viewport.addEventListener('mousedown', (e) => {
+            svg.addEventListener('mousedown', e => {
                 isDragging = true;
                 lastMousePos = { x: e.clientX, y: e.clientY };
             });
 
-            window.addEventListener('mousemove', (e) => {
+            window.addEventListener('mousemove', e => {
                 if (!isDragging) return;
                 const dx = e.clientX - lastMousePos.x;
                 const dy = e.clientY - lastMousePos.y;
-                schematicPan.x += dx;
-                schematicPan.y += dy;
-                updateMapTransform();
+                mapViewport.x += dx;
+                mapViewport.y += dy;
                 lastMousePos = { x: e.clientX, y: e.clientY };
+                applyMapTransform();
             });
 
             window.addEventListener('mouseup', () => isDragging = false);
 
-            viewport.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? 0.85 : 1.15;
-                zoomMap(delta, e.clientX, e.clientY);
-            }, { passive: false });
-
-            // Touch support for mobile pinch-to-zoom
-            let initialDist = null;
-            viewport.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 2) {
-                    initialDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
-                } else if (e.touches.length === 1) {
+            svg.addEventListener('touchstart', e => {
+                if (e.touches.length === 1) {
                     isDragging = true;
                     lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                 }
+            });
+
+            svg.addEventListener('touchmove', e => {
+                if (!isDragging || e.touches.length !== 1) return;
+                const dx = e.touches[0].clientX - lastMousePos.x;
+                const dy = e.touches[0].clientY - lastMousePos.y;
+                mapViewport.x += dx;
+                mapViewport.y += dy;
+                lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                applyMapTransform();
+            });
+
+            svg.addEventListener('touchend', () => isDragging = false);
+
+            svg.addEventListener('wheel', e => {
+                e.preventDefault();
+                const factor = e.deltaY > 0 ? 0.9 : 1.1;
+                mapZoom(factor);
             }, { passive: false });
 
-            viewport.addEventListener('touchmove', (e) => {
-                if (e.touches.length === 2 && initialDist !== null) {
-                    e.preventDefault();
-                    const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
-                    const factor = dist / initialDist;
-                    
-                    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                    
-                    zoomMap(factor, centerX, centerY);
-                    initialDist = dist;
-                } else if (e.touches.length === 1 && isDragging) {
-                    const dx = e.touches[0].clientX - lastMousePos.x;
-                    const dy = e.touches[0].clientY - lastMousePos.y;
-                    schematicPan.x += dx;
-                    schematicPan.y += dy;
-                    updateMapTransform();
-                    lastMousePos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                }
-            }, { passive: false });
-
-            viewport.addEventListener('touchend', () => {
-                initialDist = null;
-                isDragging = false;
-            });
-
-            // Fit all stations to screen initially
-            setTimeout(resetMap, 100);
-            setTimeout(resetMap, 1000); // Reliable second pass
-
-            // Handle responsiveness and layout changes
-            const resizeObserver = new ResizeObserver(() => {
-                if (document.getElementById('tab-map').classList.contains('active')) {
-                    resetMap();
-                }
-            });
-            resizeObserver.observe(viewport);
+            initSearch();
+            updateTrainPositions();
+            resetMap();
         }
 
-        function updateMapTransform() {
-            const container = document.getElementById('schematic-container');
-            if (!container) return;
-            
-            container.style.transform = `translate(${schematicPan.x}px, ${schematicPan.y}px) scale(${schematicZoom})`;
-            
-            // Dynamic Label Scaling: Keeping labels legible across all zoom levels
-            // On mobile, we use slightly larger base for touch clarity
-            const baseScreenSize = window.innerWidth < 1024 ? 14 : 16;
-            
-            // Reduced power factor (0.4) means labels stay much larger on screen
-            const targetSize = Math.max(12, (baseScreenSize + 4) / Math.pow(schematicZoom, 0.45));
-            document.documentElement.style.setProperty('--map-label-size', `${targetSize}px`);
-            
-            // Marker and border scaling
-            const markerBaseSize = 14;
-            const targetMarkerSize = Math.max(8, markerBaseSize / Math.pow(schematicZoom, 0.5));
-            document.querySelectorAll('.station-node circle').forEach(c => {
-                c.setAttribute('r', targetMarkerSize);
-                c.setAttribute('stroke-width', Math.max(2.5, 8 / schematicZoom));
-            });
-            document.querySelectorAll('.station-node.interchange circle').forEach(c => {
-                c.setAttribute('r', targetMarkerSize * 1.6);
-            });
-
-            // Adjust label stroke width dynamically for clarity at high zoom
-            const targetStrokeWidth = Math.max(4, 7 / Math.sqrt(schematicZoom));
-            document.querySelectorAll('.station-label-schematic').forEach(l => {
-                l.style.strokeWidth = `${targetStrokeWidth}px`;
-            });
-
-            // Scale landmark labels too
-            const landmarkSize = Math.max(4, 9 / Math.pow(schematicZoom, 0.5));
-            document.querySelectorAll('.landmark-label').forEach(l => {
-                l.style.fontSize = `${landmarkSize}px`;
-            });
-
-            // Adjust line widths
-            document.querySelectorAll('.metro-line').forEach(l => {
-                l.setAttribute('stroke-width', Math.max(2.5, 7 / Math.sqrt(schematicZoom)));
-            });
-
-            // Scale leader lines
-            document.querySelectorAll('.station-node line').forEach(l => {
-                const sw = Math.max(0.6, 2 / schematicZoom);
-                l.setAttribute('stroke-width', sw);
-                l.setAttribute('opacity', Math.min(0.9, 0.5 / Math.sqrt(schematicZoom)));
-                l.setAttribute('stroke-dasharray', 'none'); // Make leader lines solid for better visibility
-            });
-        }
-
-        function panMap(dx, dy) {
-            schematicPan.x += dx;
-            schematicPan.y += dy;
-            updateMapTransform();
-        }
-
-        let isZooming = false;
-        function zoomMap(factor, centerX, centerY, smooth = false) {
-            const viewport = document.getElementById('schematic-viewport');
-            if (!viewport || (isZooming && smooth)) return;
-            
-            if (smooth) {
-                isZooming = true;
-                const container = document.getElementById('schematic-container');
-                container.style.transition = 'transform 0.3s cubic-bezier(0.2, 0, 0.2, 1)';
-                setTimeout(() => {
-                    container.style.transition = '';
-                    isZooming = false;
-                }, 300);
+        async function updateTrainPositions() {
+            if (tabState !== 'map') {
+                requestAnimationFrame(updateTrainPositions);
+                return;
             }
 
-            const rect = viewport.getBoundingClientRect();
-            
-            // Calculate center relative to viewport
-            const x = (centerX !== undefined) ? centerX - rect.left : viewport.clientWidth / 2;
-            const y = (centerY !== undefined) ? centerY - rect.top : viewport.clientHeight / 2;
+            const trainsGroup = document.getElementById('map-trains');
+            const now = Date.now();
 
-            const mapX = (x - schematicPan.x) / schematicZoom;
-            const mapY = (y - schematicPan.y) / schematicZoom;
+            trainStates.forEach((t, tid) => {
+                const s1 = stations.find(s => s.id === t.from_id);
+                const s2 = stations.find(s => s.id === t.to_id);
+                if(!s1 || !s2) return;
 
-            let newZoom = schematicZoom * factor;
-            newZoom = Math.max(0.04, Math.min(10, newZoom));
-            
-            schematicPan.x = x - mapX * newZoom;
-            schematicPan.y = y - mapY * newZoom;
-            schematicZoom = newZoom;
-            
-            updateMapTransform();
+                let progress = (now / 1000 - t.t1_epoch) / t.duration;
+                progress = Math.max(0, Math.min(1.0, progress));
+
+                const pt1 = project(s1.lat, s1.lng);
+                const pt2 = project(s2.lat, s2.lng);
+
+                const x = pt1.x + (pt2.x - pt1.x) * progress;
+                const y = pt1.y + (pt2.y - pt1.y) * progress;
+
+                let trainEl = document.getElementById(`train-${tid}`);
+                if (!trainEl) {
+                    const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#22c55e';
+                    trainEl = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    trainEl.setAttribute("id", `train-${tid}`);
+                    trainEl.setAttribute("class", "train-unit");
+                    trainEl.onclick = () => handleTrainInteraction(t, s2);
+
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute("width", "20");
+                    rect.setAttribute("height", "10");
+                    rect.setAttribute("x", "-10");
+                    rect.setAttribute("y", "-5");
+                    rect.setAttribute("rx", "4");
+                    rect.setAttribute("fill", "#0f172a");
+                    rect.setAttribute("stroke", "#ffffff");
+                    rect.setAttribute("stroke-width", "2");
+
+                    const indicator = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    indicator.setAttribute("cx", "6");
+                    indicator.setAttribute("cy", "0");
+                    indicator.setAttribute("r", "2");
+                    indicator.setAttribute("fill", color);
+
+                    trainEl.appendChild(rect);
+                    trainEl.appendChild(indicator);
+                    trainsGroup.appendChild(trainEl);
+                }
+
+                const angle = Math.atan2(pt2.y - pt1.y, pt2.x - pt1.x) * 180 / Math.PI;
+                trainEl.setAttribute("transform", `translate(${x}, ${y}) rotate(${angle})`);
+            });
+
+            const allTrainIds = Array.from(trainStates.keys());
+            document.querySelectorAll('.train-unit').forEach(el => {
+                const tid = el.id.replace('train-', '');
+                if (!allTrainIds.includes(tid)) {
+                    el.remove();
+                }
+            });
+
+            requestAnimationFrame(updateTrainPositions);
         }
 
-        function resetMap() {
-            const viewport = document.getElementById('schematic-viewport');
-            if (!viewport || viewport.clientWidth === 0) return;
-
-            // ORR Bounds in SVG space to ensure the map shows ORR
-            const orrMinLat = 17.15, orrMaxLat = 17.65;
-            const orrMinLng = 78.18, orrMaxLng = 78.75;
-            const p1 = project(orrMinLat, orrMinLng);
-            const p2 = project(orrMaxLat, orrMaxLng);
-
-            const minX = Math.min(p1.x, p2.x);
-            const maxX = Math.max(p1.x, p2.x);
-            const minY = Math.min(p1.y, p2.y);
-            const maxY = Math.max(p1.y, p2.y);
-            
-            const isMobile = window.innerWidth < 1024;
-            const padding_px = isMobile ? 20 : 60; 
-            const stationsWidth = maxX - minX;
-            const stationsHeight = maxY - minY;
-
-            if (stationsWidth > 0 && stationsHeight > 0) {
-                const zoomW = (viewport.clientWidth - 2 * padding_px) / stationsWidth;
-                const zoomH = (viewport.clientHeight - 2 * padding_px) / stationsHeight;
-                
-                schematicZoom = Math.min(zoomW, zoomH, 1.2);
-                if (schematicZoom < 0.05) schematicZoom = 0.05;
-                
-                schematicPan.x = (viewport.clientWidth / 2) - ((minX + maxX) / 2 * schematicZoom);
-                schematicPan.y = (viewport.clientHeight / 2) - ((minY + maxY) / 2 * schematicZoom);
-            }
-            updateMapTransform();
-        }
 
         function toggleOverlaySide() {
             const overlay = document.getElementById('map-overlay');
@@ -2507,14 +2440,14 @@ HTML_TEMPLATE = """
         async function handleTrainInteraction(t, nextStop) {
             const overlay = document.getElementById('map-overlay');
             overlay.classList.add('active');
-            
+
             document.getElementById('ov-name').innerText = `Train ${t.trip_id}`;
             document.getElementById('ov-weather').classList.add('hidden');
-            
+
             const ovLine = document.getElementById('ov-line');
             ovLine.innerText = t.line + ' LINE';
             ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (t.line === 'Red' ? 'bg-red-50 text-red-600' : t.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
-            
+
             const oldBtn = document.getElementById('ov-inter-btn');
             if (oldBtn) oldBtn.remove();
 
@@ -2542,12 +2475,12 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             `;
-            
+
             const trainsEl = document.getElementById('ov-trains');
             trainsEl.innerHTML = '<p class="text-[10px] font-bold text-slate-400 italic">Tracking current unit metrics...</p>';
-            
+
             lucide.createIcons();
-            
+
             // Re-center on train position (estimated)
             const s1 = stations.find(s => s.id === t.from_id);
             const s2 = stations.find(s => s.id === t.to_id);
@@ -2555,34 +2488,42 @@ HTML_TEMPLATE = """
                 const now = Date.now();
                 let progress = (now / 1000 - t.t1_epoch) / t.duration;
                 progress = Math.max(0, Math.min(1, progress));
-                const curX = s1.x + (s2.x - s1.x) * progress;
-                const curY = s1.y + (s2.y - s1.y) * progress;
-                
-                const viewport = document.getElementById('schematic-viewport');
-                schematicPan.x = (viewport.clientWidth / 2.5) - (curX * schematicZoom);
-                schematicPan.y = (viewport.clientHeight / 2) - (curY * schematicZoom);
-                updateMapTransform();
+                const lat = s1.lat + (s2.lat - s1.lat) * progress;
+                const lng = s1.lng + (s2.lng - s1.lng) * progress;
+                centerMapOn(lat, lng);
             }
         }
 
-        function setMapView(mode) {}
+        function centerMapOn(lat, lng) {
+            const pt = project(lat, lng);
+            mapViewport.scale = 2.5; 
+            mapViewport.x = 500 - (pt.x * mapViewport.scale);
+            mapViewport.y = 500 - (pt.y * mapViewport.scale);
+            applyMapTransform();
+        }
 
         async function handleStationInteraction(s) {
             const overlay = document.getElementById('map-overlay');
             overlay.classList.add('active');
-            
+
             document.getElementById('ov-name').innerText = s.name;
             document.getElementById('ov-weather').classList.add('hidden');
-            
+
             const ovLine = document.getElementById('ov-line');
             ovLine.innerText = s.line + ' LINE';
             ovLine.className = 'px-3 py-1 text-[10px] font-black uppercase rounded-lg shadow-sm ' + (s.line === 'Red' ? 'bg-red-50 text-red-600' : s.line === 'Blue' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600');
-            
-            // Re-center on schematic
-            const viewport = document.getElementById('schematic-viewport');
-            schematicPan.x = (viewport.clientWidth / 2.5) - (s.x * schematicZoom);
-            schematicPan.y = (viewport.clientHeight / 2) - (s.y * schematicZoom);
-            updateMapTransform();
+
+            centerMapOn(s.lat, s.lng);
+
+            // Description Rendering
+            const descCont = document.getElementById('ov-desc-container');
+            const descEl = document.getElementById('ov-description');
+            if (s.description) {
+                descEl.innerText = s.description;
+                descCont.classList.remove('hidden');
+            } else {
+                descCont.classList.add('hidden');
+            }
 
             const oldBtn = document.getElementById('ov-inter-btn');
             if (oldBtn) oldBtn.remove();
@@ -2610,10 +2551,10 @@ HTML_TEMPLATE = """
                 wEl.classList.remove('hidden');
                 lucide.createIcons();
             } catch (e) { console.warn("Station weather fetch failed"); }
-            
+
             const am = document.getElementById('ov-amenities'); am.innerHTML = '';
             const amenities = s.amenities || ['Express Check-in', 'Tactile Pathing', 'HD Surveillance', 'Emergency Ops Center'];
-            
+
             amenities.forEach(a => {
                 const dev = document.createElement('div'); 
                 dev.className = 'bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:border-blue-200 group';
@@ -2639,8 +2580,8 @@ HTML_TEMPLATE = """
             };
 
             const trainCont = document.getElementById('ov-trains');
-            trainCont.innerHTML = `<div class="py-10 flex flex-col items-center gap-4 text-slate-300"><div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p class="text-[9px] font-black uppercase tracking-widest">Syncing Flux...</p></div>`;
-            
+            trainCont.innerHTML = `<div class="py-10 flex flex-col items-center gap-4 text-slate-300"><div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p class="text-[9px] font-black uppercase tracking-widest">Loading departures...</p></div>`;
+
             try {
                 const res = await fetch('/api/nearest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ station_id: s.id }) });
                 const data = await res.json();
@@ -2660,8 +2601,34 @@ HTML_TEMPLATE = """
                         <div class="text-right"><p class="text-sm font-black text-blue-600 tabular-nums">${t.arrival_time}</p><p class="text-[8px] font-black text-slate-400 uppercase tracking-widest">${t.eta}</p></div>`;
                     trainCont.appendChild(tDiv);
                 });
-            } catch (e) { trainCont.innerHTML = `<p class="text-xs font-bold text-red-500">Sync Failed</p>`; }
+            } catch (e) { trainCont.innerHTML = `<p class="text-xs font-bold text-red-500">Connection Failed</p>`; }
             lucide.createIcons();
+        }
+
+        function locateMeOnMap() {
+            if (lastUserLoc) {
+                const pt = project(lastUserLoc.lat, lastUserLoc.lng);
+
+                mapViewport.scale = 2.5;
+                mapViewport.x = 500 - (pt.x * mapViewport.scale);
+                mapViewport.y = 500 - (pt.y * mapViewport.scale);
+
+                applyMapTransform();
+
+                let userPin = document.getElementById('user-location-pin');
+                if (!userPin) {
+                    userPin = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    userPin.setAttribute("id", "user-location-pin");
+                    userPin.innerHTML = `
+                        <circle cx="0" cy="0" r="12" fill="#3b82f6" fill-opacity="0.2" class="user-pin-outer"></circle>
+                        <circle cx="0" cy="0" r="5" fill="#3b82f6" stroke="white" stroke-width="2"></circle>
+                    `;
+                    document.getElementById('map-viewport').appendChild(userPin);
+                }
+                userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
+            } else {
+                alert("Location not acquired yet. Please wait for GPS sync.");
+            }
         }
 
         let currentSentiment = 'neutral';
@@ -2673,120 +2640,6 @@ HTML_TEMPLATE = """
         let lastStationLoc = null;
         let weatherInterval = null;
 
-        function animateTrains() {
-            if (tabState !== 'map') {
-                trainAnimationId = requestAnimationFrame(animateTrains);
-                return;
-            }
-
-            const trainsG = document.getElementById('svg-trains');
-            const now = Date.now();
-            
-            trainStates.forEach((t, tid) => {
-                const s1 = stations.find(s => s.id === t.from_id);
-                const s2 = stations.find(s => s.id === t.to_id);
-                if(!s1 || !s2) return;
-
-                // Neural Interpolation
-                let progress = (now / 1000 - t.t1_epoch) / t.duration;
-                progress = Math.max(0, Math.min(1.0, progress));
-
-                const curX = s1.x + (s2.x - s1.x) * progress;
-                const curY = s1.y + (s2.y - s1.y) * progress;
-                
-                let trainEl = document.getElementById(`train-${tid}`);
-                if (!trainEl) {
-                    trainEl = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                    trainEl.setAttribute("id", `train-${tid}`);
-                    trainEl.setAttribute("class", "live-train-symbol");
-                    trainEl.onclick = (e) => {
-                        e.stopPropagation();
-                        handleTrainInteraction(t, s2);
-                    };
-                    
-                    trainEl.onmouseenter = (e) => {
-                        const tooltip = document.getElementById('station-tooltip');
-                        tooltip.style.display = 'block';
-                        tooltip.innerHTML = `
-                            <div class="flex items-center gap-2 mb-2">
-                                <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                                <h4 class="font-black text-xs uppercase">Train ${t.trip_id}</h4>
-                            </div>
-                            <div class="space-y-1 opacity-80 uppercase text-[8px] font-bold tracking-widest">
-                                <div>• Bound for ${t.final_stop}</div>
-                                <div>• Speed: ${t.speed} km/h</div>
-                                <div>• Next: ${s2.name}</div>
-                            </div>
-                        `;
-                    };
-                    trainEl.onmousemove = (e) => {
-                        const viewport = document.getElementById('schematic-viewport');
-                        const rect = viewport.getBoundingClientRect();
-                        const tooltip = document.getElementById('station-tooltip');
-                        tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
-                        tooltip.style.top = (e.clientY - rect.top + 15) + 'px';
-                    };
-                    trainEl.onmouseleave = () => {
-                        document.getElementById('station-tooltip').style.display = 'none';
-                    };
-                    
-                    const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#22c55e';
-                    
-                    // Train Body (Modern Pod Shape)
-                    const outer = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                    outer.setAttribute("x", "-20");
-                    outer.setAttribute("y", "-8");
-                    outer.setAttribute("width", "40");
-                    outer.setAttribute("height", "16");
-                    outer.setAttribute("rx", "8");
-                    outer.setAttribute("fill", "#0f172a");
-                    outer.setAttribute("stroke", color);
-                    outer.setAttribute("stroke-width", "3");
-                    
-                    // Windows
-                    for (let i = -12; i <= 4; i += 8) {
-                        const win = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                        win.setAttribute("x", i);
-                        win.setAttribute("y", "-3");
-                        win.setAttribute("width", "6");
-                        win.setAttribute("height", "5");
-                        win.setAttribute("rx", "1");
-                        win.setAttribute("fill", "white");
-                        win.setAttribute("opacity", "0.2");
-                        trainEl.appendChild(win);
-                    }
-
-                    // Front Light
-                    const light = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                    light.setAttribute("cx", "14");
-                    light.setAttribute("cy", "0");
-                    light.setAttribute("r", "2");
-                    light.setAttribute("fill", "#fbbf24");
-                    light.setAttribute("class", "animate-pulse");
-
-                    trainEl.appendChild(outer);
-                    trainEl.appendChild(light);
-                    trainsG.appendChild(trainEl);
-                }
-
-                const dx = s2.x - s1.x;
-                const dy = s2.y - s1.y;
-                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                
-                // Adjust scale based on zoom so trains remain visible but don't overwhelm
-                const scale = Math.max(0.4, Math.min(1.2, 1 / Math.sqrt(schematicZoom)));
-                trainEl.setAttribute("transform", `translate(${curX}, ${curY}) rotate(${angle}) scale(${scale})`);
-            });
-
-            // Cleanup inactive trains
-            const allTrainIds = Array.from(trainStates.keys());
-            trainsG.querySelectorAll('.live-train-symbol').forEach(el => {
-                const id = el.id.replace('train-', '');
-                if (!allTrainIds.includes(id)) el.remove();
-            });
-
-            trainAnimationId = requestAnimationFrame(animateTrains);
-        }
 
         function openGoogleMaps() {
             if (!lastStationLoc) return;
@@ -2807,22 +2660,22 @@ HTML_TEMPLATE = """
                 const data = await res.json();
                 document.getElementById('weather-val').innerText = data.temp + '°C, ' + data.condition;
                 document.getElementById('weather-detail').innerText = `Humidity: ${data.humidity}% | Visibility: ${data.visibility.toFixed(1)}km`;
-                
+
                 const weatherRec = data.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
                                    data.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
-                                   "Neural processing active. Enjoy your commute across the network.";
+                                   "System is ready. Enjoy your commute across the network.";
                 document.getElementById('env-msg').innerText = weatherRec;
             } catch (e) { console.warn("Weather Refresh Fail", e); }
         }
 
-        // Persistence Logic for Saved Vectors
+        // Persistence Logic for Saved Routes
         function loadSavedVectors() {
-            const saved = JSON.parse(localStorage.getItem('metro_saved_vectors') || '[]');
-            const container = document.getElementById('fav-vectors-list');
-            const section = document.getElementById('fav-vectors-section');
-            
+            const saved = JSON.parse(localStorage.getItem('metro_saved_routes') || '[]');
+            const container = document.getElementById('saved-routes-list');
+            const section = document.getElementById('saved-routes-section');
+
             if (!container) return;
-            
+
             if (saved.length > 0) {
                 section.classList.remove('hidden');
                 container.innerHTML = '';
@@ -2835,7 +2688,7 @@ HTML_TEMPLATE = """
                         showTab('routes');
                         planJourney();
                     };
-                    
+
                     card.innerHTML = `
                         <div class="flex items-center gap-5">
                             <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
@@ -2843,7 +2696,7 @@ HTML_TEMPLATE = """
                             </div>
                             <div>
                                 <h5 class="text-sm font-black text-slate-900 tracking-tight">${v.fromName} <i data-lucide="chevrons-right" class="inline opacity-30 px-1" size="12"></i> ${v.toName}</h5>
-                                <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">${v.line || 'Multi-Line'} Access</p>
+                                <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">${v.line || 'Multi-Line'} Route</p>
                             </div>
                         </div>
                         <button onclick="removeSavedVector(event, '${v.id}')" class="p-2 hover:bg-red-50 hover:text-red-500 text-slate-300 rounded-xl transition-all">
@@ -2860,13 +2713,13 @@ HTML_TEMPLATE = """
 
         function saveCurrentVector() {
             if (!currentPlannedRoute) return;
-            
-            const saved = JSON.parse(localStorage.getItem('metro_saved_vectors') || '[]');
+
+            const saved = JSON.parse(localStorage.getItem('metro_saved_routes') || '[]');
             const startId = document.getElementById('start-st').value;
             const endId = document.getElementById('end-st').value;
-            
+
             if (saved.some(v => v.from === startId && v.to === endId)) {
-                alert("Vector already synced to local matrix.");
+                alert("Route already saved.");
                 return;
             }
 
@@ -2878,7 +2731,7 @@ HTML_TEMPLATE = """
             const startNode = document.getElementById('start-st');
             const endNode = document.getElementById('end-st');
 
-            const vector = {
+            const route = {
                 id: Date.now(),
                 from: startId,
                 to: endId,
@@ -2887,41 +2740,41 @@ HTML_TEMPLATE = """
                 line: stations.find(s => s.id === startId).line
             };
 
-            saved.push(vector);
-            localStorage.setItem('metro_saved_vectors', JSON.stringify(saved));
-            
-            const btn = document.getElementById('save-vector-btn');
-            btn.innerHTML = '<i data-lucide="check" size="14"></i> Vector Saved';
+            saved.push(route);
+            localStorage.setItem('metro_saved_routes', JSON.stringify(saved));
+
+            const btn = document.getElementById('save-route-btn');
+            btn.innerHTML = '<i data-lucide="check" size="14"></i> Route Saved';
             btn.classList.replace('bg-slate-900', 'bg-emerald-500');
-            
+
             setTimeout(() => {
-                btn.innerHTML = '<i data-lucide="star" size="14"></i> Save Vector';
+                btn.innerHTML = '<i data-lucide="star" size="14"></i> Save Route';
                 btn.classList.replace('bg-emerald-500', 'bg-slate-900');
                 lucide.createIcons();
             }, 2000);
-            
+
             loadSavedVectors();
             lucide.createIcons();
         }
 
         function removeSavedVector(event, id) {
             event.stopPropagation();
-            const saved = JSON.parse(localStorage.getItem('metro_saved_vectors') || '[]');
+            const saved = JSON.parse(localStorage.getItem('metro_saved_routes') || '[]');
             const filtered = saved.filter(v => v.id.toString() !== id.toString());
-            localStorage.setItem('metro_saved_vectors', JSON.stringify(filtered));
+            localStorage.setItem('metro_saved_routes', JSON.stringify(filtered));
             loadSavedVectors();
         }
 
         function shareRoute() {
             const startName = document.getElementById('start-st').options[document.getElementById('start-st').selectedIndex].text;
             const endName = document.getElementById('end-st').options[document.getElementById('end-st').selectedIndex].text;
-            const msg = `⚡ Commuting via HydMetro Pro: ${startName} to ${endName}. Optimized path found for ₹${lastCalculatedFare}!`;
-            
+            const msg = `⚡ Commuting via HydMetro: ${startName} to ${endName}. Guide found at ₹${lastCalculatedFare}!`;
+
             if (navigator.share) {
                 navigator.share({ title: 'HydMetro Route', text: msg, url: window.location.href });
             } else {
                 navigator.clipboard.writeText(msg);
-                alert("Vector details copied to clipboard.");
+                alert("Route details copied to clipboard.");
             }
         }
 
@@ -2936,9 +2789,9 @@ HTML_TEMPLATE = """
             const history = JSON.parse(localStorage.getItem('metro_feedback') || '[]');
             const container = document.getElementById('feedback-history');
             const empty = document.getElementById('feedback-empty');
-            
+
             if (!container) return;
-            
+
             container.innerHTML = '';
             if (history.length > 0) {
                 if (empty) empty.classList.add('hidden');
@@ -2970,7 +2823,7 @@ HTML_TEMPLATE = """
         async function submitFeedback() {
             const msg = document.getElementById('feedback-msg').value.trim();
             const cat = document.getElementById('feedback-cat').value;
-            
+
             if (!msg) {
                 alert("The neural matrix requires data. Please type a message.");
                 return;
@@ -3003,17 +2856,17 @@ HTML_TEMPLATE = """
             // Clear Input
             document.getElementById('feedback-msg').value = '';
             setSentiment('neutral');
-            
+
             // UI Update
             loadFeedback();
-            
+
             // Success Effect
             const btn = document.querySelector('[onclick="submitFeedback()"]');
             const oldHtml = btn.innerHTML;
             btn.classList.replace('bg-slate-900', 'bg-emerald-500');
             btn.innerHTML = '<i data-lucide="shield-check" size="14"></i> Transmission Complete';
             lucide.createIcons();
-            
+
             setTimeout(() => {
                 btn.classList.replace('bg-emerald-500', 'bg-slate-900');
                 btn.innerHTML = oldHtml;
@@ -3027,7 +2880,7 @@ HTML_TEMPLATE = """
             const sel = document.getElementById('upi-selection');
             const btn = document.getElementById('pay-btn-main');
             const isHidden = sel.classList.contains('hidden');
-            
+
             sel.classList.toggle('hidden');
             btn.innerHTML = isHidden ? '<i data-lucide="chevron-up" size="14"></i> Cancel Selection' : '<i data-lucide="smartphone" size="14"></i> Select Payment App';
             lucide.createIcons();
@@ -3036,7 +2889,7 @@ HTML_TEMPLATE = """
         function payWithUPI(appName) {
             const startNode = document.getElementById('start-st');
             const endNode = document.getElementById('end-st');
-            
+
             if (!startNode.value || !endNode.value) {
                 alert("Please simulate a route in the Path Architect first to generate trip data.");
                 showTab('routes');
@@ -3046,7 +2899,7 @@ HTML_TEMPLATE = """
             const amount = lastCalculatedFare;
             const fromNameFull = startNode.options[startNode.selectedIndex].text;
             const toNameFull = endNode.options[endNode.selectedIndex].text;
-            
+
             // Clean names (remove icons/suffixes)
             const clean = (str) => {
                 let s = str.split(' ').slice(1).join(' '); // Skip emoji
@@ -3061,17 +2914,17 @@ HTML_TEMPLATE = """
                     <p class="text-[8px] font-bold text-white/40 mt-2">Connecting to Secure Gateway</p>
                 </div>
             `;
-            
+
             setTimeout(() => {
                 upiSelection.innerHTML = `
                     <div class="col-span-2 flex flex-col items-center justify-center p-6 bg-emerald-500 rounded-3xl animate-in zoom-in duration-500">
                         <i data-lucide="shield-check" size="32" class="text-white mb-4"></i>
                         <h6 class="text-sm font-black text-white uppercase mb-1">Payment Successful</h6>
-                        <p class="text-[10px] font-bold text-white/80">Vector Token Authorized</p>
+                        <p class="text-[10px] font-bold text-white/80">Ticket Verified</p>
                     </div>
                 `;
                 lucide.createIcons();
-                
+
                 setTimeout(() => {
                     generateTicket({
                         from: clean(fromNameFull),
@@ -3098,7 +2951,7 @@ HTML_TEMPLATE = """
 
             showTab('tickets');
             renderTickets();
-            
+
             // Animation effect
             const container = document.getElementById('active-ticket-container');
             container.classList.add('animate-bounce');
@@ -3129,21 +2982,21 @@ HTML_TEMPLATE = """
                                     <i data-lucide="train-front" size="24"></i>
                                 </div>
                                 <div>
-                                    <h3 class="text-base font-black text-slate-900 tracking-tight uppercase italic">Metro Pass</h3>
-                                    <p class="text-[9px] font-black text-blue-600 uppercase tracking-widest">Neural Authorized</p>
+                                    <h3 class="text-base font-black text-slate-900 tracking-tight uppercase italic">Metro Ticket</h3>
+                                    <p class="text-[9px] font-black text-blue-600 uppercase tracking-widest">Live Verified</p>
                                 </div>
                             </div>
                             <div class="text-right">
-                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Pass ID</p>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Ticket ID</p>
                                 <p class="text-[11px] font-black text-slate-900 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100 tabular-nums">${activeTicket.id}</p>
                             </div>
                         </div>
 
                         <div class="flex justify-between items-end gap-4 mb-4">
                             <div class="flex-1 overflow-hidden">
-                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">Origin Hub</p>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">From Station</p>
                                 <h4 class="text-2xl font-black text-slate-900 truncate tracking-tight uppercase italic">${activeTicket.from}</h4>
-                                <p class="text-[8px] font-bold text-blue-500 uppercase mt-1 tracking-widest opacity-60">Terminal A</p>
+                                <p class="text-[8px] font-bold text-blue-500 uppercase mt-1 tracking-widest opacity-60">Entrance</p>
                             </div>
                             <div class="flex flex-col items-center gap-1 pb-1">
                                 <div class="w-2 h-2 rounded-full border-2 border-slate-200 bg-white"></div>
@@ -3153,13 +3006,13 @@ HTML_TEMPLATE = """
                                 <div class="w-2 h-2 rounded-full border-2 border-slate-200 bg-white"></div>
                             </div>
                             <div class="flex-1 text-right overflow-hidden">
-                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">Target Node</p>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">To Station</p>
                                 <h4 class="text-2xl font-black text-slate-900 truncate tracking-tight uppercase italic">${activeTicket.to}</h4>
-                                <p class="text-[8px] font-bold text-emerald-500 uppercase mt-1 tracking-widest opacity-60">Terminal B</p>
+                                <p class="text-[8px] font-bold text-emerald-500 uppercase mt-1 tracking-widest opacity-60">Exit</p>
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="pass-cutout pass-cutout-left"></div>
                     <div class="pass-cutout pass-cutout-right"></div>
                     <div class="pass-divider"></div>
@@ -3183,7 +3036,7 @@ HTML_TEMPLATE = """
                 `;
                 activeContainer.appendChild(card);
 
-                
+
                 // Generate QR
                 new QRCode(document.getElementById("ticket-qr"), {
                     text: JSON.stringify({ id: activeTicket.id, u: "AIS-HYD", auth: "NEURAL-PRO" }),
@@ -3228,7 +3081,7 @@ HTML_TEMPLATE = """
                         </div>
                         <div class="text-right">
                             <p class="text-xl font-black text-slate-900 tabular-nums">₹${trip.fare}</p>
-                            <span class="text-[8px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 inline-block mt-2">Archived Vector</span>
+                            <span class="text-[8px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 inline-block mt-2">Past Trip</span>
                         </div>
                     `;
                     historyContainer.appendChild(div);
@@ -3250,87 +3103,103 @@ HTML_TEMPLATE = """
             }
         }
 
+        let userLocationMarker;
         function updateUserPin(lat, lng) {
-            const g = document.getElementById('map-user-pin');
-            if (!g) {
-                // Create pin layer if missing
-                const trainsLayer = document.getElementById('svg-trains');
-                const userG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-                userG.id = 'map-user-pin';
-                trainsLayer.after(userG);
-            }
-            const gRef = document.getElementById('map-user-pin');
-            let pin = document.getElementById('user-location-pin');
-            
-            const lats = stations.map(s => s.lat), lngs = stations.map(s => s.lng);
-            const xs = stations.map(s => s.x), ys = stations.map(s => s.y);
+            if (!googleMap || !advancedMarkersLib) return;
 
-            const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-            const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-            const minX = Math.min(...xs), maxX = Math.max(...xs);
-            const minY = Math.min(...ys), maxY = Math.max(...ys);
-
-            const x = minX + (lng - minLng) / (maxLng - minLng) * (maxX - minX);
-            const y = minY + (maxLat - lat) / (maxLat - minLat) * (maxY - minY);
-
-            if(!pin) {
-                pin = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-                pin.id = 'user-location-pin';
-                pin.style.transition = 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)';
-                pin.innerHTML = `
-                    <circle r="30" fill="#3b82f6" class="animate-ping opacity-20"></circle>
-                    <circle r="15" fill="#3b82f6" class="opacity-25"></circle>
-                    <circle r="6" fill="#2563eb" stroke="white" stroke-width="2"></circle>
+            if (!userLocationMarker) {
+                const pinContent = document.createElement('div');
+                pinContent.innerHTML = `
+                    <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+                        <div style="position: absolute; width: 60px; height: 60px; background: rgba(34, 211, 238, 0.4); border-radius: 50%; animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;"></div>
+                        <div style="width: 16px; height: 16px; background: #06b6d4; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 20px #06b6d4; z-index: 2; animation: pulse-dot 2s infinite;"></div>
+                    </div>
                 `;
-                gRef.appendChild(pin);
+
+                // Add keyframes if not exists
+                if (!document.getElementById('user-pulse-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'user-pulse-style';
+                    style.innerHTML = `
+                        @keyframes pulse-ring {
+                            0% { transform: scale(0.33); opacity: 1; }
+                            80%, 100% { transform: scale(2.5); opacity: 0; }
+                        }
+                        @keyframes pulse-dot {
+                            0% { transform: scale(0.9); }
+                            50% { transform: scale(1.1); }
+                            100% { transform: scale(0.9); }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+
+                userLocationMarker = new advancedMarkersLib.AdvancedMarkerElement({
+                    map: googleMap,
+                    position: { lat, lng },
+                    content: pinContent,
+                    title: "Your Live Position"
+                });
+            } else {
+                userLocationMarker.position = { lat, lng };
             }
-            pin.setAttribute('transform', `translate(${x}, ${y})`);
-            
-            // Try to resolve "Natural" address if in dashboard
+
             const locText = document.getElementById('user-location-text');
             if (locText) {
-                locText.innerText = `${lat.toFixed(4)}, ${lng.toFixed(4)} (Live)`;
+                locText.innerText = `${lat.toFixed(4)}, ${lng.toFixed(4)} (Neural Live)`;
             }
         }
 
+        function updateSVGUserPin(lat, lng) {
+            const pt = project(lat, lng);
+            let userPin = document.getElementById('user-location-pin');
+            if (!userPin) {
+                userPin = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                userPin.setAttribute("id", "user-location-pin");
+                userPin.innerHTML = `
+                    <circle cx="0" cy="0" r="10" fill="#22d3ee" fill-opacity="0.4" class="user-pin-glow">
+                        <animate attributeName="r" from="5" to="35" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" from="1" to="0" dur="2s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="0" cy="0" r="15" stroke="#22d3ee" stroke-width="2" fill="none" class="user-pin-outer"></circle>
+                    <circle cx="0" cy="0" r="6" fill="#06b6d4" stroke="white" stroke-width="2"></circle>
+                `;
+                const viewport = document.getElementById('map-viewport');
+                if (viewport) viewport.appendChild(userPin);
+            }
+            userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
+        }
+
         function focusOnMe() {
-            if (!lastUserLoc) {
-                alert("Acquiring FIX. Please ensure GPS is enabled.");
-                manualRefreshGeo();
+            if (!lastUserLoc || !googleMap) {
+                if (!lastUserLoc) {
+                    alert("Acquiring FIX. Please ensure GPS is enabled.");
+                    manualRefreshGeo();
+                }
                 return;
             }
-            
-            const lats = stations.map(s => s.lat), lngs = stations.map(s => s.lng);
-            const xs = stations.map(s => s.x), ys = stations.map(s => s.y);
-            const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-            const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-            const minX = Math.min(...xs), maxX = Math.max(...xs);
-            const minY = Math.min(...ys), maxY = Math.max(...ys);
 
-            const userX = minX + (lastUserLoc.lng - minLng) / (maxLng - minLng) * (maxX - minX);
-            const userY = minY + (maxLat - lastUserLoc.lat) / (maxLat - minLat) * (maxY - minY);
-
-            const viewport = document.getElementById('schematic-viewport');
-            schematicZoom = 2; // Zoom in on user
-            schematicPan.x = (viewport.clientWidth / 2) - (userX * schematicZoom);
-            schematicPan.y = (viewport.clientHeight / 2) - (userY * schematicZoom);
-            updateMapTransform();
+            googleMap.panTo({ lat: lastUserLoc.lat, lng: lastUserLoc.lng });
+            googleMap.setZoom(16);
         }
 
         function showTab(id) {
             tabState = id;
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.mobile-link').forEach(l => l.classList.remove('active'));
-            
+
             const contentTab = document.getElementById('tab-'+id);
             const mobileTab = document.getElementById('mob-'+id);
-            
+
             if (contentTab) contentTab.classList.add('active');
             if (mobileTab) mobileTab.classList.add('active');
-            
+
             if(id === 'map') {
-                setTimeout(resetMap, 50);
-                setTimeout(resetMap, 300);
+                if (!document.getElementById('map-lines').children.length) {
+                    initCustomMetroMap();
+                } else {
+                    setTimeout(resetMap, 50);
+                }
             } else if (id === 'stations') {
                 renderStationsDirectory();
             } else if (id === 'tickets') {
@@ -3357,14 +3226,31 @@ HTML_TEMPLATE = """
         function renderStationsDirectory() {
             const grid = document.getElementById('stations-grid');
             if (!grid) return;
+
+            const subtitle = document.getElementById('stations-dir-subtitle');
             const searchQ = document.getElementById('dir-search').value.toLowerCase().trim();
+
+            if (currentDirFilter === 'Blue' && !searchQ) {
+                subtitle.innerText = "BLUE LINE (Raidurg → Nagole) — Full details with services";
+                subtitle.className = "text-[10px] font-black text-blue-500 uppercase tracking-[0.3em]";
+            } else if (currentDirFilter === 'Red' && !searchQ) {
+                subtitle.innerText = "RED LINE (Miyapur → LB Nagar) — Full details with services";
+                subtitle.className = "text-[10px] font-black text-red-500 uppercase tracking-[0.3em]";
+            } else if (currentDirFilter === 'Green' && !searchQ) {
+                subtitle.innerText = "GREEN LINE (JBS → MGBS) — Full details with services";
+                subtitle.className = "text-[10px] font-black text-green-500 uppercase tracking-[0.3em]";
+            } else {
+                subtitle.innerText = "Explore all stations and facilities";
+                subtitle.className = "text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]";
+            }
+
             grid.innerHTML = '';
-            
+
             let filteredSt = currentDirFilter === 'All' ? stations : stations.filter(s => s.line === currentDirFilter);
             if (searchQ) {
                 filteredSt = filteredSt.filter(s => s.name.toLowerCase().includes(searchQ) || s.id.toLowerCase().includes(searchQ));
             }
-            
+
             if (filteredSt.length === 0) {
                 grid.innerHTML = '<div class="col-span-full py-32 text-center flex flex-col items-center justify-center text-slate-300"><i data-lucide="search-x" size="48" class="mb-4 opacity-10"></i><p class="text-[10px] font-black uppercase tracking-widest opacity-40">No stations detected in this sector</p></div>';
                 lucide.createIcons();
@@ -3381,11 +3267,11 @@ HTML_TEMPLATE = """
                     showTab('map');
                     handleStationInteraction(s);
                 };
-                
+
                 const lineColor = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
                 const lineText = s.line === 'Red' ? 'text-red-500' : s.line === 'Blue' ? 'text-blue-500' : 'text-green-500';
                 const isInter = interchanges.includes(s.name);
-                
+
                 card.innerHTML = `
                     <div class="flex justify-between items-start">
                         <div class="w-10 h-10 ${lineColor} rounded-2xl flex items-center justify-center text-white shadow-lg shadow-current/20 group-hover:scale-110 transition-transform">
@@ -3393,23 +3279,24 @@ HTML_TEMPLATE = """
                         </div>
                         <div class="flex flex-col items-end gap-1">
                             <span class="text-[9px] font-black uppercase ${lineText} tracking-[0.2em] bg-slate-50 px-3 py-1 rounded-full border border-slate-100">${s.line} Line</span>
-                            ${isInter ? '<span class="text-[7px] font-black uppercase text-amber-500 tracking-widest bg-amber-50 px-2 py-0.5 rounded border border-amber-100">Interchange Hub</span>' : ''}
+                            ${isInter ? '<span class="text-[7px] font-black uppercase text-amber-500 tracking-widest bg-amber-50 px-2 py-0.5 rounded border border-amber-100">Transfer Station</span>' : ''}
                         </div>
                     </div>
                     <div>
                         <h4 class="text-xl font-black text-slate-900 tracking-tight group-hover:text-blue-600 transition-colors uppercase italic">${s.name}</h4>
                         <div class="flex items-center gap-2 mt-2">
                              <div class="w-1 h-1 rounded-full bg-slate-300"></div>
-                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${s.id} Node</p>
+                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${s.id} Station</p>
                         </div>
+                        <p class="mt-4 text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-3">${s.description || 'Station details and area description available in the interactive map view.'}</p>
                     </div>
-                    <div class="flex flex-wrap gap-2 mt-auto">
+                    <div class="flex flex-wrap gap-2 mt-2">
                         ${(s.amenities || ['Parking', 'ATM', 'Lift', 'Security']).slice(0, 3).map(a => `
                             <span class="px-2.5 py-1 bg-slate-50 border border-slate-100 rounded-lg text-[8px] font-black text-slate-500 uppercase tracking-tighter group-hover:bg-blue-50 group-hover:border-blue-100 transition-colors">${a}</span>
                         `).join('')}
                     </div>
-                    <div class="pt-4 border-t border-slate-50 flex items-center justify-between">
-                         <span class="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">View Terminal Intel</span>
+                    <div class="pt-4 border-t border-slate-50 flex items-center justify-between mt-auto">
+                         <span class="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">View Details on Map</span>
                          <i data-lucide="arrow-right" size="12" class="text-slate-300 group-hover:translate-x-1 transition-transform group-hover:text-blue-500"></i>
                     </div>
                 `;
@@ -3484,7 +3371,7 @@ HTML_TEMPLATE = """
             'MG Bus Station': {
                 lines: ['Red', 'Green'],
                 guidance: [
-                    "Transfer between the terminal hubs via the dedicated Interchange Walkway.",
+                    "Transfer between the terminal stations via the dedicated Interchange Walkway.",
                     "Red Line serves the North-South corridor (Level 1).",
                     "Green Line serves the terminal wing (Adjacent).",
                     "Follow the floor-haptic strips for low-visibility guidance."
@@ -3549,7 +3436,7 @@ HTML_TEMPLATE = """
         function showMapSuggestions(val) {
             const sugg = document.getElementById('map-suggestions');
             const q = val.toLowerCase().trim();
-            
+
             if (q.length < 1) {
                 sugg.classList.add('hidden');
                 return;
@@ -3590,7 +3477,7 @@ HTML_TEMPLATE = """
         function filterMapStations(query) {
             const q = query.toLowerCase().trim();
             const clearBtn = document.getElementById('search-clear');
-            
+
             if (q === '') {
                 clearBtn.classList.add('hidden');
             } else {
@@ -3606,7 +3493,16 @@ HTML_TEMPLATE = """
             }
         }
 
-        function setupMap() {}
+        function initSearch() {
+            window.addEventListener('keydown', (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                    if (tabState === 'map') {
+                        e.preventDefault();
+                        document.getElementById('map-search').focus();
+                    }
+                }
+            });
+        }
 
         async function updateBoardData(lat, lng, stationId = null) {
             try {
@@ -3614,10 +3510,13 @@ HTML_TEMPLATE = """
                     console.log("Empty location payload, aborting update.");
                     return;
                 }
-                
+
                 document.getElementById('board-loading').classList.remove('hidden');
-                
-                if (lat && lng) updateUserPin(lat, lng);
+
+                if (lat && lng) {
+                    updateUserPin(lat, lng);
+                    updateSVGUserPin(lat, lng);
+                }
 
                 const body = stationId ? { station_id: stationId } : { lat, lng };
                 const res = await fetchWithSim('/api/nearest', { 
@@ -3627,33 +3526,43 @@ HTML_TEMPLATE = """
                 });
                 if (!res.ok) throw new Error("API Offline");
                 const data = await res.json();
-                
+
                 lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
                 if (lat && lng) lastUserLoc = { lat, lng };
 
                 document.getElementById('near-name').innerText = data.station.name;
                 document.getElementById('near-dist').innerText = data.distance + ' km radius';
 
+                // Update Mobile Pulse Cards
+                if (document.getElementById('near-name-mob-2')) {
+                    document.getElementById('near-name-mob-2').innerText = data.station.name;
+                    document.getElementById('near-dist-mob-2').innerText = data.distance + ' km to station';
+                }
+                if (document.getElementById('weather-val-mob')) {
+                    document.getElementById('weather-val-mob').innerText = data.weather.temp + '°C';
+                    document.getElementById('weather-cond-mob').innerText = data.weather.condition;
+                }
+
                 const distStatus = document.getElementById('near-dist-status');
                 if (distStatus) {
                     distStatus.innerText = data.distance + ' km to ' + data.station.name;
                 }
-                
+
                 const walkTimeEl = document.getElementById('near-walk-time');
                 if (walkTimeEl) {
                     walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
                     walkTimeEl.classList.remove('hidden');
                 }
-                
+
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
 
                 document.getElementById('near-metro-live').innerText = data.station.name;
                 if (document.getElementById('near-metro-mob')) {
-                    document.getElementById('near-metro-mob').innerText = 'Near ' + data.station.name + ' Hub';
+                    document.getElementById('near-metro-mob').innerText = 'Near ' + data.station.name + ' Station';
                 }
                 document.getElementById('active-count').innerText = data.active_trips;
-                document.getElementById('load-status').innerText = data.load_label + ' LOAD';
+                document.getElementById('load-status').innerText = data.load_label;
                 document.getElementById('load-status').className = 'px-3 py-1 bg-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/10 ' + 
                                                                   (data.load_val === 'High' ? 'text-red-400' : 'text-emerald-400');
                 document.getElementById('greeting').innerText = data.greeting + '!';
@@ -3661,7 +3570,7 @@ HTML_TEMPLATE = """
                     document.getElementById('greeting-mob').innerText = data.greeting + '!';
                 }
                 document.getElementById('weather-val').innerText = data.weather.temp + '°C, ' + data.weather.condition;
-                
+
                 // Sync selector if in auto-mode
                 const selector = document.getElementById('board-station-selector');
                 if (!stationId) {
@@ -3671,7 +3580,7 @@ HTML_TEMPLATE = """
 
                 const weatherRec = data.weather.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
                                    data.weather.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
-                                   "Neural processing active. Enjoy your commute across the network.";
+                                   "System is ready. Enjoy your commute across the network.";
                 document.getElementById('env-msg').innerText = weatherRec;
 
                 const loadCol = data.load_val === 'High' ? '#ef4444' : 
@@ -3687,7 +3596,7 @@ HTML_TEMPLATE = """
                 });
                 const rows = document.getElementById('board-rows'); rows.innerHTML = '';
                 document.getElementById('board-loading').classList.add('hidden');
-                
+
                 if (data.upcoming.length === 0) {
                     rows.innerHTML = '<tr><td colspan="4" class="py-16 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest bg-slate-50/50 rounded-2xl">Signal Lost. No Upcoming departures in this vector.</td></tr>';
                 }
@@ -3784,6 +3693,12 @@ HTML_TEMPLATE = """
                     pos => {
                         lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                         updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                        // Auto-move pin on map if it exists
+                        let userPin = document.getElementById('user-location-pin');
+                        if (userPin) {
+                            const pt = project(pos.coords.latitude, pos.coords.longitude);
+                            userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
+                        }
                     },
                     err => {
                         if (document.getElementById('near-name').innerText === "Acquiring Fix...") {
@@ -3827,7 +3742,7 @@ HTML_TEMPLATE = """
             const btn = document.getElementById('plan-btn');
             const btnText = document.getElementById('btn-text');
             const loader = document.getElementById('btn-loader');
-            
+
             btn.disabled = true;
             btnText.classList.add('opacity-0');
             loader.classList.remove('hidden');
@@ -3838,19 +3753,19 @@ HTML_TEMPLATE = """
 
                 const res = await fetchWithSim('/api/plan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({from: f, to: t}) });
                 const data = await res.json();
-                
+
                 currentPlannedRoute = data;
                 document.getElementById('route-output').classList.remove('hidden');
                 const emptyState = document.getElementById('route-empty');
                 if (emptyState) emptyState.classList.add('hidden');
-                
+
                 // Details
                 document.getElementById('route-dur').innerText = (data.duration || 0) + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
                 document.getElementById('route-dist-main').innerText = data.total_km;
                 document.getElementById('route-dist').innerText = data.total_km;
                 document.getElementById('route-rec').innerText = data.recommendation;
-                
+
                 // Eco Metrics
                 document.getElementById('route-co2').innerText = (data.eco.co2 || 0) + 'kg';
                 document.getElementById('route-cal').innerText = (data.eco.calories || 0);
@@ -3864,21 +3779,21 @@ HTML_TEMPLATE = """
                 loadForecast.innerText = `${loadVal}% Capacity Utilization`;
                 peakPct.innerText = `${data.peak_intensity || 0}% PK`;
                 loadBar.style.width = `${loadVal}%`;
-                
+
                 // Color bar based on load
                 loadBar.className = 'h-full transition-all duration-1000 ' + 
                                   (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
-                
+
                 lastCalculatedFare = data.fare;
-                
+
                 const seq = document.getElementById('route-seq'); seq.innerHTML = '';
-                
+
                 // Add Metrics Grid
                 const metricsDiv = document.createElement('div');
                 metricsDiv.className = "grid grid-cols-2 gap-4 mb-8 bg-slate-50 p-6 rounded-[24px] border border-slate-100";
                 metricsDiv.innerHTML = `
                     <div class="flex flex-col"><span class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Peak Intensity</span><span class="text-[13px] font-bold text-slate-700">${data.metrics.peak}</span></div>
-                    <div class="flex flex-col"><span class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Vector Bias</span><span class="text-[13px] font-bold text-slate-700">${data.metrics.it_hub}</span></div>
+                    <div class="flex flex-col"><span class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Rush Info</span><span class="text-[13px] font-bold text-slate-700">${data.metrics.it_hub}</span></div>
                 `;
                 seq.appendChild(metricsDiv);
 
@@ -3888,11 +3803,11 @@ HTML_TEMPLATE = """
                     guideHeader.className = "text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-6 flex items-center gap-2";
                     guideHeader.innerHTML = `<i data-lucide="shuffle" size="12"></i> Critical Interchange Vectors`;
                     seq.appendChild(guideHeader);
-                    
+
                     data.guides.forEach((g, gIdx) => {
                         const gDiv = document.createElement('div');
                         gDiv.className = "bg-slate-900 border border-slate-800 p-8 rounded-[40px] shadow-2xl mb-10 relative overflow-hidden group border-l-[12px] border-l-blue-500 animate-in slide-in-from-right duration-700";
-                        
+
                         let connectionsHtml = "";
                         if (g.connections && g.connections.length > 0) {
                             connectionsHtml = `
@@ -3961,7 +3876,7 @@ HTML_TEMPLATE = """
                 // Path Sequence
                 const pathHeader = document.createElement('h5');
                 pathHeader.className = "text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8 mt-12";
-                pathHeader.innerText = "Network Vector Stream";
+                pathHeader.innerText = "Metro Map View";
                 seq.appendChild(pathHeader);
 
                 const streamWrap = document.createElement('div');
@@ -4008,7 +3923,7 @@ HTML_TEMPLATE = """
                         </div>`;
                     sched.appendChild(div);
                 });
-                
+
                 lucide.createIcons();
                 document.getElementById('route-output').scrollIntoView({ behavior: 'smooth' });
 
@@ -4031,17 +3946,17 @@ HTML_TEMPLATE = """
             ['start-st', 'end-st'].forEach(id => {
                 const select = document.getElementById(id);
                 if (!select) return;
-                select.innerHTML = '<option value="" disabled selected>Explore Matrix Access...</option>';
-                
+                select.innerHTML = '<option value="" disabled selected>Select a station...</option>';
+
                 lines.forEach(line => {
                     const group = document.createElement('optgroup');
                     group.label = `${lineIcons[line]} ${line} Line Network`;
-                    
+
                     stations.filter(s => s.line === line).sort((a,b) => a.name.localeCompare(b.name)).forEach(st => {
                         const opt = document.createElement('option');
                         opt.value = st.id;
                         let suffix = '';
-                        if (itHubs.some(hub => st.name.includes(hub))) suffix = '  (IT HUB)';
+                        if (itHubs.some(hub => st.name.includes(hub))) suffix = '  (IT AREA)';
                         if (interchanges.includes(st.name)) suffix = ' 🔄 (INTERCHANGE)';
                         opt.innerText = `${lineIcons[line]} ${st.name}${suffix}`;
                         group.appendChild(opt);
@@ -4055,7 +3970,7 @@ HTML_TEMPLATE = """
             try {
                 const res = await fetchWithSim('/api/live-map');
                 const data = await res.json();
-                
+
                 const seenIds = new Set();
                 if (data.trains) {
                     data.trains.forEach(t => {
@@ -4080,13 +3995,11 @@ HTML_TEMPLATE = """
             setInterval(updateClock, 1000);
             initGeo(); 
             initPickers(); 
-            initSchematicMap();
             updateLiveTrains(); 
             loadFeedback(); 
             renderTickets();
             loadSavedVectors();
             activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
-            trainAnimationId = requestAnimationFrame(animateTrains);
         };
     </script>
 </body>
