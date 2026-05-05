@@ -479,8 +479,14 @@ def api_nearest():
 
     # Urban Walking Adjustment: approx 1.35x crow-flies distance for city streets
     walk_dist = dist * 1.35
-    walking_mins = int((walk_dist / 5.0) * 60)  # Assume 5km/h walking speed
-    if walking_mins < 1: walking_mins = 1
+    walking_mins = int((walk_dist / 5.0) * 60)
+
+    # Distance Context
+    range_status = "In City"
+    if dist > 50:
+        range_status = "Out of City"
+    elif dist > 15:
+        range_status = "Peripheral"
 
     name = nearest.get('name_alias', nearest['name'])
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
@@ -561,6 +567,7 @@ def api_nearest():
         'distance': round(dist, 2),
         'walk_dist': round(walk_dist, 2),
         'walking_mins': walking_mins,
+        'range_status': range_status,
         'upcoming': upcoming,
         'load_val': load_val,
         'load_label': load_label,
@@ -1211,6 +1218,58 @@ HTML_TEMPLATE = """
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+        }
+
+        /* Mobile Phone UI for Interchanges */
+        .phone-frame {
+            width: 100%;
+            max-width: 340px;
+            height: 600px;
+            background: #1e293b;
+            border: 12px solid #334155;
+            border-radius: 48px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.5);
+            margin: 0 auto;
+        }
+
+        .phone-notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            height: 24px;
+            background: #334155;
+            border-bottom-left-radius: 16px;
+            border-bottom-right-radius: 16px;
+            z-index: 50;
+        }
+
+        .phone-screen {
+            width: 100%;
+            height: 100%;
+            background: #f8fafc;
+            border-radius: 36px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .phone-screen::-webkit-scrollbar {
+            width: 0px;
+        }
+
+        .phone-ui-header {
+            background: white;
+            padding: 40px 20px 20px 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .phone-ui-content {
+            padding: 24px 20px;
+        }
+            letter-spacing: 0.05em;
             display: flex;
             align-items: center;
             gap: 6px;
@@ -1632,6 +1691,9 @@ HTML_TEMPLATE = """
                                 <button onclick="manualRefreshGeo()" class="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl hover:bg-black transition-all flex items-center justify-center gap-2">
                                     <i data-lucide="locate-fixed" size="12"></i> Locate Me
                                 </button>
+                                <button id="map-jump-btn" onclick="showTab('map'); setTimeout(locateMeOnMap, 100);" class="p-4 bg-slate-900 text-white rounded-2xl hover:bg-black transition-all hidden" title="View on Map">
+                                    <i data-lucide="map" size="16"></i>
+                                </button>
                                 <button id="nav-btn" onclick="openGoogleMaps()" class="p-4 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all hidden" title="Walking Directions">
                                     <i data-lucide="navigation" size="16"></i>
                                 </button>
@@ -1756,33 +1818,50 @@ HTML_TEMPLATE = """
         <!-- NETWORK MAP -->
         <div id="tab-map" class="tab-content h-full">
             <div id="interchange-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-                <div class="glass-card bg-white w-full max-w-lg p-0 overflow-hidden shadow-2xl border-none">
-                    <div id="modal-header" class="p-8 pb-4 flex justify-between items-start">
-                        <div>
-                            <h2 id="modal-title" class="text-2xl font-black text-slate-900 tracking-tight">Transfer Station</h2>
-                            <p id="modal-subtitle" class="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mt-1">Changing lines guidance</p>
-                        </div>
-                        <button onclick="closeInterchangeModal()" class="p-2 hover:bg-slate-100 rounded-xl transition-all">
-                            <i data-lucide="x" size="20"></i>
-                        </button>
-                    </div>
-                    <div id="modal-content" class="p-8 pt-0 space-y-6">
-                        <div id="line-badges" class="flex gap-2 mb-6"></div>
-                        <div class="space-y-4">
-                            <h4 class="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                <i data-lucide="shuffle" size="14"></i> Transfer Guide
-                            </h4>
-                            <div id="transfer-guidance" class="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-4">
-                                <!-- Guidance steps will be injected here -->
+                <div class="phone-frame scale-90 sm:scale-100">
+                    <div class="phone-notch"></div>
+                    <div class="phone-screen">
+                        <div class="phone-ui-header">
+                            <div class="flex justify-between items-center mb-6">
+                                <button onclick="closeInterchangeModal()" class="p-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors">
+                                    <i data-lucide="chevron-left" class="text-slate-600" size="18"></i>
+                                </button>
+                                <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Station Guide</span>
+                                <i data-lucide="more-horizontal" class="text-slate-300" size="18"></i>
                             </div>
+                            <h3 id="modal-title" class="text-2xl font-black text-slate-900 tracking-tight leading-tight mb-2">Interchange</h3>
+                            <div id="line-badges" class="flex gap-2"></div>
                         </div>
-                    </div>
-                    <div class="p-6 bg-slate-900 text-white flex justify-between items-center mt-4">
-                        <div class="flex items-center gap-3">
-                            <i data-lucide="info" class="text-blue-400" size="16"></i>
-                            <span class="text-[9px] font-black uppercase tracking-widest italic">Live station map available via terminal kiosk</span>
+                        <div class="phone-ui-content">
+                            <div class="bg-blue-600/5 border border-blue-100 p-5 rounded-3xl mb-8">
+                                <div class="flex items-center gap-3 mb-4">
+                                    <div class="p-2 bg-blue-600 text-white rounded-xl"><i data-lucide="shuffle" size="14"></i></div>
+                                    <span class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Transfer Vectors</span>
+                                </div>
+                                <div id="transfer-guidance" class="space-y-6 placeholder-slate-200">
+                                    <div class="h-4 w-3/4 bg-slate-100 rounded animate-pulse"></div>
+                                    <div class="h-4 w-1/2 bg-slate-100 rounded animate-pulse"></div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-4">
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Live Load Projection</p>
+                                <div class="bg-white border border-slate-100 p-5 rounded-3xl flex items-center justify-between">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 bg-emerald-50 text-emerald-500 rounded-xl flex items-center justify-center"><i data-lucide="users" size="18"></i></div>
+                                        <div>
+                                            <p class="text-xs font-black text-slate-900">Normal Flow</p>
+                                            <p class="text-[8px] font-bold text-slate-400 uppercase">Current Density</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-[14px] font-black text-emerald-500">22%</span>
+                                </div>
+                            </div>
+
+                            <button onclick="closeInterchangeModal()" class="w-full mt-10 py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl">
+                                Return to Map
+                            </button>
                         </div>
-                        <button onclick="closeInterchangeModal()" class="px-5 py-2.5 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Acknowledge</button>
                     </div>
                 </div>
             </div>
@@ -2234,6 +2313,8 @@ HTML_TEMPLATE = """
         const connections = {{ CONNECTIONS | tojson }};
         const landmarksData = {{ LANDMARKS | tojson }};
         let trainStates = new Map(); 
+        let syncSuccessOnce = false;
+        window.shouldCenterOnNextFix = true;
 
         let mapViewport = { x: 0, y: 0, scale: 1 };
         let isDragging = false;
@@ -2315,7 +2396,8 @@ HTML_TEMPLATE = """
                 const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
                 const blueLeft = s.line === 'Blue' && ['B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'].includes(s.id);
                 const redLeft = s.line === 'Red' && ['R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22'].includes(s.id);
-                const onLeft = (blueLeft || redLeft) && s.id !== 'B12'; // B12 Prakash Nagar moved to right side
+                // B12 Prakash Nagar: User wants it on the "other side". If blueLeft is true (default left), we move it to right.
+                const onLeft = (blueLeft || redLeft) && s.id !== 'B12'; 
 
                 const lx = pt.x + (onLeft ? -12 : 12);
                 const ly = pt.y + 4;
@@ -2633,15 +2715,28 @@ HTML_TEMPLATE = """
 
         function locateMeOnMap() {
             if (lastUserLoc) {
-                const pt = project(lastUserLoc.lat, lastUserLoc.lng);
+                const latMin = 17.0, latMax = 17.7, lngMin = 78.1, lngMax = 78.9;
+                const isOutOfHyd = lastUserLoc.lat < latMin || lastUserLoc.lat > latMax || lastUserLoc.lng < lngMin || lastUserLoc.lng > lngMax;
 
-                mapViewport.scale = 2.5;
+                let targetLoc = lastUserLoc;
+                if (isOutOfHyd && window.lastNearestStation) {
+                    targetLoc = window.lastNearestStation;
+                    const status = document.getElementById('satellite-status');
+                    if (status) status.innerText = "Showing Nearest Metro (User Far Away)";
+                }
+
+                const pt = project(targetLoc.lat, targetLoc.lng);
+
+                // Centering logic: target point (pt.x, pt.y) should be at (500, 500) in coordinate space
+                // Viewport translation: newX = (canvasWidth/2) - (pt.x * scale)
+                mapViewport.scale = 2.0; 
                 mapViewport.x = 500 - (pt.x * mapViewport.scale);
                 mapViewport.y = 500 - (pt.y * mapViewport.scale);
 
                 applyMapTransform();
                 updateSVGUserPin(lastUserLoc.lat, lastUserLoc.lng);
             } else {
+                window.shouldCenterOnNextFix = true;
                 manualRefreshGeo();
                 const status = document.getElementById('satellite-status');
                 if (status) status.innerText = "Targeting User Vector...";
@@ -2656,6 +2751,7 @@ HTML_TEMPLATE = """
         let lastUserLoc = null;
         let lastStationLoc = null;
         let weatherInterval = null;
+        let gpsFallbackMsg = null;
 
 
         function openGoogleMaps() {
@@ -3173,34 +3269,41 @@ HTML_TEMPLATE = """
         function updateSVGUserPin(lat, lng) {
             const pt = project(lat, lng);
             let userPin = document.getElementById('user-location-pin');
-            if (!userPin) {
+            const viewport = document.getElementById('map-viewport');
+
+            if (!userPin && viewport) {
                 userPin = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 userPin.setAttribute("id", "user-location-pin");
                 userPin.innerHTML = `
-                    <circle cx="0" cy="0" r="10" fill="#22d3ee" fill-opacity="0.4" class="user-pin-glow">
-                        <animate attributeName="r" from="5" to="35" dur="2s" repeatCount="indefinite" />
+                    <circle cx="0" cy="0" r="10" fill="#3b82f6" fill-opacity="0.3">
+                        <animate attributeName="r" from="5" to="40" dur="2s" repeatCount="indefinite" />
                         <animate attributeName="opacity" from="1" to="0" dur="2s" repeatCount="indefinite" />
                     </circle>
-                    <circle cx="0" cy="0" r="15" stroke="#22d3ee" stroke-width="2" fill="none" class="user-pin-outer"></circle>
-                    <circle cx="0" cy="0" r="6" fill="#06b6d4" stroke="white" stroke-width="2"></circle>
+                    <circle cx="0" cy="0" r="12" stroke="#3b82f6" stroke-width="2" fill="none" opacity="0.6">
+                         <animate attributeName="r" from="12" to="15" dur="1s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="0" cy="0" r="6" fill="#2563eb" stroke="white" stroke-width="2.5" shadow="0 0 10px rgba(37, 99, 235, 0.5)"></circle>
                 `;
-                const viewport = document.getElementById('map-viewport');
-                if (viewport) viewport.appendChild(userPin);
+                viewport.appendChild(userPin);
             }
-            userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
+
+            if (userPin) {
+                userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
+
+                if (window.shouldCenterOnNextFix) {
+                    locateMeOnMap(); // Recursive call but with lastUserLoc present
+                    window.shouldCenterOnNextFix = false;
+                }
+            }
         }
 
         function focusOnMe() {
-            if (!lastUserLoc || !googleMap) {
-                if (!lastUserLoc) {
-                    alert("Acquiring FIX. Please ensure GPS is enabled.");
-                    manualRefreshGeo();
-                }
+            if (!lastUserLoc) {
+                window.shouldCenterOnNextFix = true;
+                manualRefreshGeo();
                 return;
             }
-
-            googleMap.panTo({ lat: lastUserLoc.lat, lng: lastUserLoc.lng });
-            googleMap.setZoom(16);
+            locateMeOnMap();
         }
 
         function showTab(id) {
@@ -3551,7 +3654,12 @@ HTML_TEMPLATE = """
                 if (!lat && !lng && !stationId) return;
 
                 const boardLoading = document.getElementById('board-loading');
-                if (boardLoading) boardLoading.classList.remove('hidden');
+                const boardContent = document.getElementById('board-content');
+
+                // Show loading only if we haven't succeeded yet
+                if (boardLoading && !syncSuccessOnce) {
+                    boardLoading.classList.remove('hidden');
+                }
 
                 const setElText = (id, text) => {
                     const el = document.getElementById(id);
@@ -3569,27 +3677,35 @@ HTML_TEMPLATE = """
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify(body) 
                 });
+
                 if (!res.ok) throw new Error("API Offline");
                 const data = await res.json();
 
+                syncSuccessOnce = true;
+                window.lastNearestStation = data.station;
                 lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
                 if (lat && lng) lastUserLoc = { lat, lng };
 
+                // Update UI with real data context
                 setElText('near-name', data.station.name);
+                setElText('near-name-mob-2', data.station.name);
                 setElText('near-dist', data.distance + ' km (Crow-flies)');
+                setElText('near-dist-mob-2', data.distance + ' km away');
 
-                setElText('user-location-text', data.station.name + ', ' + data.distance + ' km');
+                let locDisplay = data.station.name + ', ' + data.distance + ' km';
+                if (data.range_status === 'Out of City') locDisplay = data.station.name + ' (Inter-city)';
+                setElText('user-location-text', locDisplay);
 
                 const walkContainer = document.getElementById('near-walk-container');
                 const walkTimeEl = document.getElementById('near-walk-time');
                 if (walkContainer && walkTimeEl) {
-                    walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
+                    if (data.range_status === 'Out of City' || data.distance > 15) {
+                        walkTimeEl.innerText = `Vehicle Required (${data.distance}km)`;
+                    } else {
+                        walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
+                    }
                     walkContainer.classList.remove('hidden');
                 }
-
-                // Update Mobile Pulse Cards with Real Distance
-                setElText('near-name-mob-2', data.station.name);
-                setElText('near-dist-mob-2', data.distance + ' km to Entrance');
 
                 // Update System Status
                 setElText('live-train-count', data.active_trips + ' Trains Active');
@@ -3604,10 +3720,26 @@ HTML_TEMPLATE = """
                     setElText('weather-cond-mob', data.weather.condition);
                 }
 
-                setElText('near-dist-status', `${data.walking_mins} min walk (${data.walk_dist}km) | ${data.load_label}`);
+                let statusLine = `${data.walking_mins} min walk | ${data.load_label}`;
+                if (data.range_status === 'Out of City') statusLine = `Inter-city Location | ${data.distance}km away`;
+                else if (data.range_status === 'Peripheral') statusLine = `Peripheral Area | ${data.distance}km away`;
+
+                const netStatusEl = document.getElementById('near-dist-status');
+                if (netStatusEl) {
+                    if (gpsFallbackMsg) {
+                        netStatusEl.innerHTML = `${gpsFallbackMsg} <button onclick="manualRefreshGeo()" class="px-2 py-0.5 bg-amber-500/20 rounded-md underline font-black cursor-pointer hover:bg-amber-500/40 transition-all ml-2">RETRY</button>`;
+                        netStatusEl.classList.add('text-amber-400');
+                    } else {
+                        netStatusEl.innerText = statusLine;
+                        netStatusEl.classList.remove('text-amber-400');
+                    }
+                }
 
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
+
+                const mapJumpBtn = document.getElementById('map-jump-btn');
+                if (mapJumpBtn) mapJumpBtn.classList.remove('hidden');
 
                 setElText('near-metro-live', data.station.name);
                 setElText('near-metro-mob', 'Near ' + data.station.name + ' Station');
@@ -3697,6 +3829,19 @@ HTML_TEMPLATE = """
                 lucide.createIcons();
             } catch (err) {
                 console.error("Board Sync Error:", err);
+                const syncIcon = document.getElementById('sync-icon');
+                if (syncIcon) {
+                    syncIcon.classList.remove('text-blue-600', 'animate-pulse');
+                    syncIcon.classList.add('text-red-500');
+                }
+
+                if (syncSuccessOnce) {
+                    // Just show a subtle warning if we already have data
+                    const netStatus = document.getElementById('near-dist-status');
+                    if (netStatus) netStatus.innerText = "Sync Latency Detected. Reconnecting...";
+                    return;
+                }
+
                 const boardRows = document.getElementById('board-rows');
                 if (boardRows) boardRows.innerHTML = '';
                 const boardLoading = document.getElementById('board-loading');
@@ -3725,11 +3870,6 @@ HTML_TEMPLATE = """
                     </div>
                 `;
                 }
-                const syncIcon = document.getElementById('sync-icon');
-                if (syncIcon) {
-                    syncIcon.classList.remove('text-blue-600', 'animate-pulse');
-                    syncIcon.classList.add('text-red-500');
-                }
                 lucide.createIcons();
             }
         }
@@ -3752,70 +3892,44 @@ HTML_TEMPLATE = """
 
         async function performSatelliteHandshake() {
             const status = document.getElementById('satellite-status');
-            const nameEl = document.getElementById('near-name');
-            const distEl = document.getElementById('near-dist');
-            const syncIcon = document.getElementById('sync-icon');
+            const userLocText = document.getElementById('user-location-text');
+            const netStatus = document.getElementById('near-dist-status');
+            const nearName = document.getElementById('near-name');
+            const nearDist = document.getElementById('near-dist');
 
-            const setStatus = (msg, colorClass) => {
-                if (status) {
-                    status.innerText = msg;
-                    status.className = `text-[7px] font-black uppercase ${colorClass} tracking-widest mt-1 animate-pulse`;
-                }
-            };
-
-            const finalizeStatus = (msg, colorClass) => {
-                if (status) {
-                    status.innerText = msg;
-                    status.className = `text-[7px] font-black uppercase ${colorClass} tracking-widest mt-1`;
-                }
-                if (syncIcon) {
-                    syncIcon.classList.remove('animate-pulse', 'text-red-500');
-                    syncIcon.classList.add(colorClass.includes('emerald') ? 'text-blue-600' : 'text-amber-500');
-                }
-            };
-
-            // Set default immediately while waiting for GPS
-            fallbackToDefault();
-
-            nameEl.innerText = "Locating...";
-            distEl.innerText = "Handshaking with satellites...";
-
-            const homeNameEl = document.getElementById('user-location-text');
-            const homeDistEl = document.getElementById('near-dist-status');
-            if (homeNameEl) homeNameEl.innerText = "Scanning Vectors...";
-            if (homeDistEl) homeDistEl.innerText = "Establishing Satellite Uplink...";
-
-            setStatus("Stage 1: Satellite Handshake...", "text-blue-500");
-
-            if (!navigator.geolocation) {
-                finalizeStatus("GPS Not Supported", "text-red-500");
-                return;
+            if (status) {
+                status.innerText = "Initiating Satellite Handshake...";
+                status.classList.remove('text-amber-500');
+                status.classList.add('text-emerald-500');
             }
 
+            if (userLocText) {
+                userLocText.innerText = "Finding nearest station...";
+                userLocText.classList.add('animate-pulse');
+            }
+
+            if (netStatus) netStatus.innerText = "Establishing Satellite Uplink...";
+            if (nearName) nearName.innerText = "Locating...";
+            if (nearDist) nearDist.innerText = "Contacting Satellites...";
+
             try {
-                const status = document.getElementById('satellite-status');
-                const userLocText = document.getElementById('user-location-text');
+                if (!navigator.geolocation) throw new Error("GPS_NOT_SUPPORTED");
 
-                if (status) status.innerText = "Synchronizing GPS Vectors...";
-                if (userLocText) {
-                    userLocText.innerText = "Finding nearest station...";
-                    userLocText.classList.add('animate-pulse');
-                }
-
-                // Racing Geolocation against a 20-second timeout
+                // Racing Geolocation against a 10-second timeout for snappy feedback
                 const pos = await Promise.race([
                     new Promise((resolve, reject) => {
                         navigator.geolocation.getCurrentPosition(resolve, reject, { 
                             enableHighAccuracy: true, 
-                            timeout: 20000, 
-                            maximumAge: 5000
+                            timeout: 10000, 
+                            maximumAge: 0
                         });
                     }),
                     new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error("METRO_GPS_TIMEOUT")), 20500);
+                        setTimeout(() => reject(new Error("METRO_GPS_TIMEOUT")), 10500);
                     })
                 ]);
 
+                gpsFallbackMsg = null;
                 if (userLocText) {
                     userLocText.classList.remove('animate-pulse');
                 }
@@ -3845,8 +3959,7 @@ HTML_TEMPLATE = """
                 if (err.code === 1) errorMsg = "GPS Permission Denied";
                 if (err.message === "METRO_GPS_TIMEOUT" || err.code === 3) errorMsg = "GPS Timeout Happened";
 
-                const status = document.getElementById('satellite-status');
-                const userLocText = document.getElementById('user-location-text');
+                gpsFallbackMsg = errorMsg + " | Fallback Mode";
 
                 if (status) {
                     status.innerText = `${errorMsg}. Ameerpet Hub Active.`;
@@ -3856,14 +3969,22 @@ HTML_TEMPLATE = """
 
                 if (userLocText) {
                     userLocText.classList.remove('animate-pulse');
-                    userLocText.innerText = errorMsg;
-                    userLocText.classList.add('text-slate-400');
                 }
 
-                // If location fails, we usually fallback to Ameerpet default via previous logic or just updateBoardData with default
-                if (!lastUserLoc) {
-                   await updateBoardData(17.4334, 78.4484); // amepert
-                }
+                // Try IP Fallback as a second layer of defense
+                try {
+                    const ipRes = await fetch('https://ipapi.co/json/');
+                    const ipData = await ipRes.json();
+                    if (ipData.latitude && ipData.longitude) {
+                        gpsFallbackMsg = "IP Location Active | Fallback Mode";
+                        if (status) status.innerText = "IP Geo-Sync Active. Centering Map.";
+                        await updateBoardData(ipData.latitude, ipData.longitude);
+                        return;
+                    }
+                } catch (e) { console.warn("IP Fallback failed", e); }
+
+                // Final fallback to Ameerpet default
+                await updateBoardData(17.4334, 78.4484); 
             }
         }
 
@@ -3976,61 +4097,75 @@ HTML_TEMPLATE = """
                 // Add Guides (Interchanges)
                 if (data.guides && data.guides.length > 0) {
                     const guideHeader = document.createElement('h5');
-                    guideHeader.className = "text-[11px] font-black text-blue-600 uppercase tracking-[0.2em] mb-6 flex items-center gap-2 pl-2";
-                    guideHeader.innerHTML = `<i data-lucide="shuffle" size="14"></i> Critical Interchange Vectors`;
+                    guideHeader.className = "text-[11px] font-black text-blue-600 uppercase tracking-[0.2em] mb-8 mt-12 flex items-center gap-2 pl-2";
+                    guideHeader.innerHTML = `<i data-lucide="smartphone" size="14"></i> Critical Interchange Vectors`;
                     seq.appendChild(guideHeader);
 
                     data.guides.forEach((g, gIdx) => {
-                        const gDiv = document.createElement('div');
-                        gDiv.className = "bg-white border border-slate-100 p-5 rounded-3xl shadow-sm mb-6 flex flex-col gap-4 animate-in slide-in-from-bottom duration-500 hover:border-blue-200 transition-all";
-
-                        let connectionsHtml = "";
-                        if (g.connections && g.connections.length > 0) {
-                            connectionsHtml = `
-                                <div class="grid grid-cols-2 gap-3 mt-4 border-t border-slate-50 pt-4">
-                                    ${g.connections.slice(0, 4).map(c => `
-                                        <div class="p-3 bg-slate-50 rounded-2xl flex flex-col gap-1 border border-slate-100/50">
-                                            <div class="flex items-center justify-between">
-                                                <div class="w-1 h-3 rounded-full ${c.line === 'Red' ? 'bg-red-500' : c.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
-                                                <span class="text-[9px] font-black text-slate-900 tabular-nums">${c.arrival_time_12}</span>
-                                            </div>
-                                            <span class="text-[7px] font-bold text-slate-400 uppercase tracking-tighter truncate">${c.final_stop}</span>
+                        const outer = document.createElement('div');
+                        outer.className = "mb-12";
+                        outer.innerHTML = `
+                            <div class="phone-frame scale-90 sm:scale-100 !h-[550px] border-[6px]">
+                                <div class="phone-notch scale-75"></div>
+                                <div class="phone-screen !bg-white">
+                                    <div class="phone-ui-header !pt-10 !pb-6">
+                                        <div class="flex justify-between items-center mb-4 text-slate-400">
+                                            <i data-lucide="wifi" size="12"></i>
+                                            <span class="text-[9px] font-black tabular-nums">12:42 PM</span>
+                                            <i data-lucide="battery" size="12"></i>
                                         </div>
-                                    `).join('')}
-                                </div>
-                            `;
-                        }
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white">
+                                                <i data-lucide="shuffle" size="18"></i>
+                                            </div>
+                                            <div>
+                                                <h6 class="text-[16px] font-black text-slate-900 tracking-tight">${g.station}</h6>
+                                                <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Transfer Hub</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="phone-ui-content">
+                                        <div class="bg-indigo-900 text-white p-6 rounded-3xl shadow-xl mb-6 relative overflow-hidden">
+                                            <div class="absolute -right-4 -top-4 w-20 h-20 bg-white/5 rounded-full"></div>
+                                            <div class="flex items-center gap-2 mb-4">
+                                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                <span class="text-[9px] font-black uppercase tracking-widest text-indigo-200">Live Guidance</span>
+                                            </div>
+                                            <p class="text-sm font-bold leading-relaxed mb-6">${g.text}</p>
+                                            <div class="flex items-center justify-between pt-4 border-t border-white/10">
+                                                <div class="flex flex-col">
+                                                    <span class="text-[8px] font-black uppercase text-indigo-300">Target</span>
+                                                    <span class="text-lg font-black tracking-tight">Platform ${g.platform}</span>
+                                                </div>
+                                                <div class="text-right">
+                                                    <span class="text-[8px] font-black uppercase text-indigo-300">ETA</span>
+                                                    <p class="text-lg font-black tracking-tight">${g.reaching_at}</p>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                        gDiv.innerHTML = `
-                            <div class="flex items-start justify-between">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 bg-blue-600/10 text-blue-600 rounded-xl flex items-center justify-center">
-                                        <i data-lucide="shuffle" size="18"></i>
+                                        <div class="space-y-3">
+                                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Connecting Services</p>
+                                            <div class="grid grid-cols-1 gap-2">
+                                                ${(g.connections || []).slice(0, 3).map(c => `
+                                                    <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+                                                        <div class="flex items-center gap-3">
+                                                            <div class="w-1 h-8 rounded-full ${c.line === 'Red' ? 'bg-red-500' : c.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
+                                                            <div>
+                                                                <p class="text-[10px] font-black text-slate-900 uppercase truncate max-w-[120px]">${c.final_stop}</p>
+                                                                <p class="text-[8px] font-bold text-slate-400 uppercase">${c.line} Line</p>
+                                                            </div>
+                                                        </div>
+                                                        <span class="text-xs font-black text-slate-600 tabular-nums">${c.arrival_time_12}</span>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h6 class="text-[14px] font-black text-slate-900 tracking-tight">${g.station}</h6>
-                                        <p class="text-[9px] font-bold text-slate-400 ml-0.5 uppercase tracking-widest">Digital Transfer Node</p>
-                                    </div>
-                                </div>
-                                <div class="px-2.5 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1.5">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                    AT ${g.reaching_at}
                                 </div>
                             </div>
-
-                            <div class="bg-slate-900 text-white p-4 rounded-2xl flex gap-3 shadow-lg shadow-slate-900/10">
-                                <div class="shrink-0 p-1.5 bg-white/10 rounded-lg"><i data-lucide="info" size="12"></i></div>
-                                <div>
-                                    <p class="text-[11px] font-bold leading-relaxed pr-2">${g.text}</p>
-                                    <div class="flex items-center gap-2 mt-2 opacity-60">
-                                        <div class="h-px flex-1 bg-white/20"></div>
-                                        <span class="text-[8px] font-black uppercase tracking-widest text-blue-400">Platform ${g.platform}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            ${connectionsHtml}
                         `;
-                        seq.appendChild(gDiv);
+                        seq.appendChild(outer);
                     });
                 }
 
