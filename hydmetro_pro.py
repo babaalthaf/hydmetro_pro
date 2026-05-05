@@ -430,7 +430,7 @@ def save_feedback_to_cloud(feedback_data):
 
 @app.route('/')
 def index():
-    ensure_gtfs(force=True)  # Ensure GTFS reflects new stations
+    ensure_gtfs(force=False)  # Only generate if missing
     return render_template_string(HTML_TEMPLATE,
                                   ALL_STATIONS=STATIONS_LIST,
                                   CONNECTIONS=CONNECTIONS,
@@ -452,16 +452,28 @@ def api_feedback():
     return jsonify({'status': 'success' if success else 'failed'})
 
 
-@app.route('/api/nearest', methods=['POST'])
+@app.route('/api/nearest', methods=['GET', 'POST'])
 def api_nearest():
-    data = request.json or {}
+    """Returns nearest station, departures, and predictive load based on simulated GTFS."""
+    if request.method == 'POST':
+        data = request.json or {}
+    else:
+        data = request.args
+
     dist = 0
 
     if 'station_id' in data:
-        nearest = next(s for s in STATIONS_LIST if s['id'] == data['station_id'])
+        matches = [s for s in STATIONS_LIST if s['id'] == data['station_id']]
+        if not matches:
+            return jsonify({'error': 'Station not found'}), 404
+        nearest = matches[0]
         lat, lng = nearest['lat'], nearest['lng']
     else:
-        lat, lng = data.get('lat', 17.3850), data.get('lng', 78.4867)
+        try:
+            lat = float(data.get('lat', 17.3850))
+            lng = float(data.get('lng', 78.4867))
+        except:
+            lat, lng = 17.3850, 78.4867
         nearest = min(STATIONS_LIST, key=lambda s: haversine(lat, lng, s['lat'], s['lng']))
         dist = haversine(lat, lng, nearest['lat'], nearest['lng'])
 
@@ -475,6 +487,15 @@ def api_nearest():
 
     trips = ensure_gtfs()
     now = get_app_now()
+
+    # Handle simulation override
+    sim_h = data.get('sim_hour')
+    if sim_h:
+        try:
+            now = now.replace(hour=int(sim_h), minute=30, second=0)
+        except:
+            pass
+
     now_str = now.strftime('%H:%M:%S')
     one_hour_later = now + timedelta(hours=1)
     oh_str = one_hour_later.strftime('%H:%M:%S')
@@ -501,16 +522,12 @@ def api_nearest():
     is_weekend = now.weekday() >= 5
     load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
 
-    # Landmark Logic (Mocked based on station name for demo)
-    landmarks = []
+    # Landmark Logic (Simplified for brevity)
+    landmarks = [{'name': 'Local Hub', 'dist': 0.5}]
     if name == 'Ameerpet':
-        landmarks = [{'name': 'Next Galleria Mall', 'dist': 0.2}, {'name': 'Sarath City Mall', 'dist': 4.5}]
-    elif name == 'MG Bus Station':
-        landmarks = [{'name': 'Central Bus Terminal', 'dist': 0.1}, {'name': 'Osmania Hospital', 'dist': 0.6}]
+        landmarks = [{'name': 'Next Galleria Mall', 'dist': 0.2}]
     elif name == 'Hitech City':
-        landmarks = [{'name': 'Cyber Towers', 'dist': 0.3}, {'name': 'L&T Phoenix Infocity', 'dist': 0.8}]
-    else:
-        landmarks = [{'name': 'Local Market', 'dist': 0.5}, {'name': 'Public Garden', 'dist': 1.2}]
+        landmarks = [{'name': 'Cyber Towers', 'dist': 0.3}]
 
     # Timings
     first_train = '06:00 AM'
@@ -529,10 +546,8 @@ def api_nearest():
 
     active_count = sum(1 for tid, times in trip_times.items() if times['min'] <= now_str <= times['max'])
 
-    # Sort upcoming by original string comparison (before I:M p conversion)
+    # Format upcoming for display
     upcoming.sort(key=lambda x: x['arrival_time'])
-
-    # Use 12-hour format for upcoming trains
     for t in upcoming:
         try:
             h, m, s = map(int, t['arrival_time'].split(':'))
@@ -540,8 +555,6 @@ def api_nearest():
             t['arrival_time'] = dt.strftime('%I:%M %p')
         except:
             pass
-
-    # Sort upcoming by original string comparison (before I:M p conversion) or keep it consistent
 
     return jsonify({
         'station': nearest,
@@ -1542,7 +1555,7 @@ HTML_TEMPLATE = """
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
                 <!-- PRIMARY LIVE DATA -->
-                <div class="lg:col-span-8 hidden lg:block">
+                <div class="lg:col-span-8">
                     <div class="glass-card bg-slate-900 border-none p-8 lg:p-12 min-h-[340px] lg:min-h-[400px] flex flex-col justify-end relative overflow-hidden group shadow-2xl shadow-blue-500/10">
                         <div class="absolute inset-0 bg-gradient-to-br from-blue-600/30 via-transparent to-slate-900/80 z-10"></div>
                         <div class="absolute right-0 top-0 w-full h-full opacity-20 z-0">
@@ -1556,9 +1569,9 @@ HTML_TEMPLATE = """
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12 items-end">
                                 <div>
-                                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Your Zone</h4>
-                                    <p id="user-location-text" class="text-2xl lg:text-3xl font-black text-white tracking-tighter mb-1 truncate">Finding you...</p>
-                                    <p id="near-dist-status" class="text-[10px] font-black uppercase tracking-widest text-blue-400">Locating...</p>
+                                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Nearest Station</h4>
+                                    <p id="user-location-text" class="text-2xl lg:text-3xl font-black text-white tracking-tighter mb-1 truncate">Finding stations...</p>
+                                    <p id="near-dist-status" class="text-[10px] font-black uppercase tracking-widest text-blue-400">Locating via Satellite...</p>
                                 </div>
                                 <div>
                                     <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Weather</h4>
@@ -1584,10 +1597,20 @@ HTML_TEMPLATE = """
                             <div class="flex-1 space-y-10">
                                 <div>
                                     <h3 id="near-name" class="text-3xl font-black text-slate-900 tracking-tighter mb-1 truncate">--</h3>
-                                    <p id="near-dist" class="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Distance</p>
+                                    <div class="flex items-center gap-2">
+                                        <i data-lucide="navigation-2" size="10" class="text-blue-500"></i>
+                                        <p id="near-dist" class="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Locating...</p>
+                                    </div>
                                 </div>
 
                                 <div class="space-y-4">
+                                    <div id="near-walk-container" class="hidden flex items-center gap-4 bg-blue-50/50 p-4 rounded-2xl border border-blue-100/50 animate-in fade-in slide-in-from-top-2">
+                                        <div class="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm border border-slate-100"><i data-lucide="footprints" size="18"></i></div>
+                                        <div>
+                                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Walking Time</p>
+                                             <span id="near-walk-time" class="text-xs font-black text-slate-800 uppercase tracking-tight">-- mins</span>
+                                        </div>
+                                    </div>
                                     <div class="flex items-center gap-4">
                                         <div class="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-blue-600/60 shadow-sm border border-slate-100"><i data-lucide="activity" size="18"></i></div>
                                         <div>
@@ -1607,7 +1630,7 @@ HTML_TEMPLATE = """
 
                             <div class="mt-10 pt-8 border-t border-slate-100 flex gap-4">
                                 <button onclick="manualRefreshGeo()" class="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl hover:bg-black transition-all flex items-center justify-center gap-2">
-                                    <i data-lucide="refresh-cw" size="12"></i> Refresh
+                                    <i data-lucide="locate-fixed" size="12"></i> Locate Me
                                 </button>
                                 <button id="nav-btn" onclick="openGoogleMaps()" class="p-4 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-all hidden" title="Walking Directions">
                                     <i data-lucide="navigation" size="16"></i>
@@ -1624,8 +1647,11 @@ HTML_TEMPLATE = """
                     <div class="glass-card p-0 overflow-hidden border-slate-200 shadow-2xl shadow-slate-200/40 bg-white">
                         <div class="p-6 lg:p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
                             <div class="flex items-center gap-3 lg:gap-5">
-                                <i data-lucide="radio" class="text-blue-600 animate-pulse" size="18"></i>
-                                <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Station</span></h3>
+                                <i data-lucide="radio" id="sync-icon" class="text-blue-600 animate-pulse" size="18"></i>
+                                <div class="flex flex-col">
+                                    <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Station</span></h3>
+                                    <span id="satellite-status" class="text-[7px] font-black uppercase text-slate-400 tracking-widest mt-1">Satellite Search Active</span>
+                                </div>
                             </div>
                             <div class="flex gap-2">
                                  <select id="board-station-selector" onchange="manualStationChange()" class="text-[8px] lg:text-[10px] font-black uppercase bg-white border border-slate-200 px-3 lg:px-4 py-1.5 lg:py-2 rounded-lg lg:rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer shadow-sm">
@@ -2287,7 +2313,7 @@ HTML_TEMPLATE = """
                 stationsGroup.appendChild(circle);
 
                 const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                const blueLeft = s.line === 'Blue' && ['B11', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'].includes(s.id);
+                const blueLeft = s.line === 'Blue' && ['B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'].includes(s.id);
                 const redLeft = s.line === 'Red' && ['R15', 'R16', 'R17', 'R18', 'R19', 'R20', 'R21', 'R22'].includes(s.id);
                 const onLeft = blueLeft || redLeft;
 
@@ -2304,7 +2330,7 @@ HTML_TEMPLATE = """
                 } else if (s.id === 'R3') { // KPHB (30 deg left)
                     label.setAttribute("transform", `rotate(-30, ${lx}, ${ly})`);
                 } else if (s.id === 'B12') { // Prakash Nagar
-                    label.setAttribute("transform", `rotate(30, ${lx}, ${ly})`);
+                    label.setAttribute("transform", `rotate(-20, ${lx}, ${ly})`);
                 }
 
                 label.setAttribute("class", "station-label-custom");
@@ -2658,13 +2684,16 @@ HTML_TEMPLATE = """
                     body: JSON.stringify({ lat: lastUserLoc.lat, lng: lastUserLoc.lng })
                 });
                 const data = await res.json();
-                document.getElementById('weather-val').innerText = data.temp + '°C, ' + data.condition;
-                document.getElementById('weather-detail').innerText = `Humidity: ${data.humidity}% | Visibility: ${data.visibility.toFixed(1)}km`;
+                const vEl = document.getElementById('weather-val');
+                const dEl = document.getElementById('weather-detail');
+                if (vEl) vEl.innerText = (data.temp || '--') + '°C, ' + (data.condition || '--');
+                if (dEl) dEl.innerText = `Humidity: ${data.humidity || 0}% | Visibility: ${(data.visibility || 0).toFixed(1)}km`;
 
-                const weatherRec = data.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
-                                   data.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
+                const weatherRec = (data.temp > 35) ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
+                                   (data.condition || '').includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
                                    "System is ready. Enjoy your commute across the network.";
-                document.getElementById('env-msg').innerText = weatherRec;
+                const msgEl = document.getElementById('env-msg');
+                if (msgEl) msgEl.innerText = weatherRec;
             } catch (e) { console.warn("Weather Refresh Fail", e); }
         }
 
@@ -3145,8 +3174,8 @@ HTML_TEMPLATE = """
             }
 
             const locText = document.getElementById('user-location-text');
-            if (locText) {
-                locText.innerText = `${lat.toFixed(4)}, ${lng.toFixed(4)} (Neural Live)`;
+            if (locText && (locText.innerText.includes('Finding') || locText.innerText.includes('Syncing'))) {
+                locText.innerText = "Handshaking with Satellites...";
             }
         }
 
@@ -3312,34 +3341,56 @@ HTML_TEMPLATE = """
         }
 
         function updateClock() {
-            let now = new Date();
-            if (typeof simulationHour !== 'undefined' && simulationHour !== -1) {
-                now.setHours(simulationHour);
-                if (document.getElementById('env-msg')) {
-                    if (!document.getElementById('sim-indicator')) {
-                        const badge = document.createElement('span');
-                        badge.id = 'sim-indicator';
-                        badge.className = 'ml-3 px-2 py-0.5 bg-blue-500 text-white text-[8px] font-black rounded-md tracking-widest animate-pulse';
-                        badge.innerText = 'SIMULATED';
-                        document.getElementById('ampm').after(badge);
+            try {
+                let now = new Date();
+                if (typeof simulationHour !== 'undefined' && simulationHour !== -1) {
+                    now.setHours(simulationHour);
+                    const envMsg = document.getElementById('env-msg');
+                    if (envMsg) {
+                        const ampm = document.getElementById('ampm');
+                        if (ampm && !document.getElementById('sim-indicator')) {
+                            const badge = document.createElement('span');
+                            badge.id = 'sim-indicator';
+                            badge.className = 'ml-3 px-2 py-0.5 bg-blue-500 text-white text-[8px] font-black rounded-md tracking-widest animate-pulse';
+                            badge.innerText = 'SIMULATED';
+                            ampm.after(badge);
+                        }
+                    }
+                } else {
+                    const simInd = document.getElementById('sim-indicator');
+                    if (simInd) simInd.remove();
+                }
+
+                let options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+                let timeStr = now.toLocaleTimeString('en-US', options);
+
+                // Be extra careful with splitting as some locales or browser settings might vary
+                let parts = timeStr.split(/[\s\u00A0\u202F]/); // Handle various space types
+
+                const clockEl = document.getElementById('clock');
+                const ampmEl = document.getElementById('ampm');
+                const dateEl = document.getElementById('date');
+
+                if (clockEl) {
+                    if (parts.length >= 2) {
+                        clockEl.innerText = parts[0];
+                        if (ampmEl) ampmEl.innerText = parts[1];
+                    } else {
+                        // Fallback if split didn't work as expected or no AM/PM
+                        clockEl.innerText = timeStr.replace(/\s*[AP]M\s*/i, '');
+                        if (ampmEl) ampmEl.innerText = now.getHours() >= 12 ? 'PM' : 'AM';
                     }
                 }
-            } else {
-                if (document.getElementById('sim-indicator')) document.getElementById('sim-indicator').remove();
+
+                if (dateEl) {
+                    dateEl.innerText = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
+                }
+
+                const mapClock = document.getElementById('map-clock');
+                if (mapClock) mapClock.innerText = timeStr;
+            } catch (e) {
+                console.error("Clock Update Failed:", e);
             }
-            let options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
-            let timeStr = now.toLocaleTimeString('en-US', options);
-            let parts = timeStr.split(' ');
-            if (parts.length === 2) {
-                document.getElementById('clock').innerText = parts[0];
-                document.getElementById('ampm').innerText = parts[1];
-            } else {
-                document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).split(' ')[0];
-                document.getElementById('ampm').innerText = now.getHours() >= 12 ? 'PM' : 'AM';
-            }
-            document.getElementById('date').innerText = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
-            const mapClock = document.getElementById('map-clock');
-            if (mapClock) mapClock.innerText = timeStr;
         }
 
         function applySimulation() {
@@ -3506,12 +3557,15 @@ HTML_TEMPLATE = """
 
         async function updateBoardData(lat, lng, stationId = null) {
             try {
-                if (!lat && !lng && !stationId) {
-                    console.log("Empty location payload, aborting update.");
-                    return;
-                }
+                if (!lat && !lng && !stationId) return;
 
-                document.getElementById('board-loading').classList.remove('hidden');
+                const boardLoading = document.getElementById('board-loading');
+                if (boardLoading) boardLoading.classList.remove('hidden');
+
+                const setElText = (id, text) => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerText = text;
+                };
 
                 if (lat && lng) {
                     updateUserPin(lat, lng);
@@ -3530,53 +3584,70 @@ HTML_TEMPLATE = """
                 lastStationLoc = { lat: data.station.lat, lng: data.station.lng };
                 if (lat && lng) lastUserLoc = { lat, lng };
 
-                document.getElementById('near-name').innerText = data.station.name;
-                document.getElementById('near-dist').innerText = data.distance + ' km radius';
+                setElText('near-name', data.station.name);
+                setElText('near-dist', data.distance + ' km (Crow-flies)');
 
-                // Update Mobile Pulse Cards
-                if (document.getElementById('near-name-mob-2')) {
-                    document.getElementById('near-name-mob-2').innerText = data.station.name;
-                    document.getElementById('near-dist-mob-2').innerText = data.distance + ' km to station';
+                setElText('user-location-text', data.station.name + ', ' + data.distance + ' km');
+
+                const walkContainer = document.getElementById('near-walk-container');
+                const walkTimeEl = document.getElementById('near-walk-time');
+                if (walkContainer && walkTimeEl) {
+                    walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
+                    walkContainer.classList.remove('hidden');
+                }
+
+                // Update Mobile Pulse Cards with Real Distance
+                setElText('near-name-mob-2', data.station.name);
+                setElText('near-dist-mob-2', data.distance + ' km to Entrance');
+
+                // Update System Status
+                setElText('live-train-count', data.active_trips + ' Trains Active');
+
+                const ridershipEl = document.getElementById('ridership-val');
+                if (ridershipEl) {
+                    const estRiders = (data.active_trips * 450) + Math.floor(Math.random() * 200);
+                    ridershipEl.innerText = estRiders.toLocaleString();
                 }
                 if (document.getElementById('weather-val-mob')) {
-                    document.getElementById('weather-val-mob').innerText = data.weather.temp + '°C';
-                    document.getElementById('weather-cond-mob').innerText = data.weather.condition;
+                    setElText('weather-val-mob', data.weather.temp + '°C');
+                    setElText('weather-cond-mob', data.weather.condition);
                 }
 
-                const distStatus = document.getElementById('near-dist-status');
-                if (distStatus) {
-                    distStatus.innerText = data.distance + ' km to ' + data.station.name;
-                }
-
-                const walkTimeEl = document.getElementById('near-walk-time');
-                if (walkTimeEl) {
-                    walkTimeEl.innerText = `${data.walking_mins} min walk (${data.walk_dist}km)`;
-                    walkTimeEl.classList.remove('hidden');
-                }
+                setElText('near-dist-status', `${data.walking_mins} min walk (${data.walk_dist}km) | ${data.load_label}`);
 
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
 
-                document.getElementById('near-metro-live').innerText = data.station.name;
-                if (document.getElementById('near-metro-mob')) {
-                    document.getElementById('near-metro-mob').innerText = 'Near ' + data.station.name + ' Station';
+                setElText('near-metro-live', data.station.name);
+                setElText('near-metro-mob', 'Near ' + data.station.name + ' Station');
+                setElText('active-count', data.active_trips);
+
+                const loadStatusEl = document.getElementById('load-status');
+                if (loadStatusEl) {
+                    loadStatusEl.innerText = data.load_label;
+                    loadStatusEl.className = 'px-3 py-1 bg-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/10 ' + 
+                                            (data.load_val === 'High' ? 'text-red-400' : 'text-emerald-400');
                 }
-                document.getElementById('active-count').innerText = data.active_trips;
-                document.getElementById('load-status').innerText = data.load_label;
-                document.getElementById('load-status').className = 'px-3 py-1 bg-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/10 ' + 
-                                                                  (data.load_val === 'High' ? 'text-red-400' : 'text-emerald-400');
-                document.getElementById('greeting').innerText = data.greeting + '!';
-                if (document.getElementById('greeting-mob')) {
-                    document.getElementById('greeting-mob').innerText = data.greeting + '!';
+
+                setElText('greeting', data.greeting + '!');
+                setElText('greeting-mob', data.greeting + '!');
+                const weatherVal = document.getElementById('weather-val');
+                if (weatherVal) {
+                    weatherVal.innerText = data.weather.temp + '°C, ' + data.weather.condition;
+                    weatherVal.classList.remove('animate-pulse');
                 }
-                document.getElementById('weather-val').innerText = data.weather.temp + '°C, ' + data.weather.condition;
 
                 // Sync selector if in auto-mode
                 const selector = document.getElementById('board-station-selector');
                 if (!stationId) {
                     selector.value = data.station.id;
                 }
-                document.getElementById('weather-detail').innerText = `Humidity: ${data.weather.humidity}% | Visibility: ${data.weather.visibility.toFixed(1)}km`;
+
+                const weatherDetail = document.getElementById('weather-detail');
+                if (weatherDetail) {
+                    weatherDetail.innerText = `Humidity: ${data.weather.humidity}% | Visibility: ${data.weather.visibility.toFixed(1)}km`;
+                    weatherDetail.classList.remove('animate-pulse');
+                }
 
                 const weatherRec = data.weather.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
                                    data.weather.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
@@ -3629,32 +3700,140 @@ HTML_TEMPLATE = """
                 lucide.createIcons();
             } catch (err) {
                 console.error("Board Sync Error:", err);
-                document.getElementById('board-loading').innerHTML = `<i data-lucide="wifi-off" class="text-red-400 mb-2"></i><p class="text-red-400">Sync Interrupted</p>`;
+                const boardRows = document.getElementById('board-rows');
+                if (boardRows) boardRows.innerHTML = '';
+                const boardLoading = document.getElementById('board-loading');
+                if (boardLoading) {
+                    boardLoading.classList.remove('hidden');
+                    boardLoading.innerHTML = `
+                    <div class="flex flex-col items-center gap-4 py-8">
+                        <div class="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 shadow-inner">
+                            <i data-lucide="wifi-off" size="28"></i>
+                        </div>
+                        <div class="text-center px-4">
+                            <p class="text-[14px] font-black text-slate-900 tracking-tight">Sync Vector Interrupted</p>
+                            <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Satellite handshake failed. Check your data connection or permissions.</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="manualRefreshGeo()" class="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl">
+                                Retry Satellite
+                            </button>
+                            <button onclick="manualStationChange('R11')" class="px-6 py-3 bg-blue-50 text-blue-600 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-blue-100">
+                                Ameerpet Hub
+                            </button>
+                        </div>
+                    </div>
+                `;
+                }
+                const syncIcon = document.getElementById('sync-icon');
+                if (syncIcon) {
+                    syncIcon.classList.remove('text-blue-600', 'animate-pulse');
+                    syncIcon.classList.add('text-red-500');
+                }
                 lucide.createIcons();
             }
         }
 
-        async function manualStationChange() {
-            const sid = document.getElementById('board-station-selector').value;
+        async function manualStationChange(forcedId) {
+            const selector = document.getElementById('board-station-selector');
+            const sid = forcedId || selector.value;
             if (!sid) {
                 manualRefreshGeo();
                 return;
             }
+            if (forcedId) selector.value = forcedId;
             const s = stations.find(st => st.id === sid);
-            updateBoardData(s.lat, s.lng, s.id);
+            if (s) updateBoardData(s.lat, s.lng, s.id);
         }
 
         function manualRefreshGeo() {
-            if (navigator.geolocation) {
-                document.getElementById('near-name').innerText = "Refreshing...";
-                navigator.geolocation.getCurrentPosition(
-                    pos => {
-                        lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                        updateBoardData(pos.coords.latitude, pos.coords.longitude);
+            performSatelliteHandshake();
+        }
+
+        async function performSatelliteHandshake() {
+            const status = document.getElementById('satellite-status');
+            const nameEl = document.getElementById('near-name');
+            const distEl = document.getElementById('near-dist');
+            const syncIcon = document.getElementById('sync-icon');
+
+            const setStatus = (msg, colorClass) => {
+                if (status) {
+                    status.innerText = msg;
+                    status.className = `text-[7px] font-black uppercase ${colorClass} tracking-widest mt-1 animate-pulse`;
+                }
+            };
+
+            const finalizeStatus = (msg, colorClass) => {
+                if (status) {
+                    status.innerText = msg;
+                    status.className = `text-[7px] font-black uppercase ${colorClass} tracking-widest mt-1`;
+                }
+                if (syncIcon) {
+                    syncIcon.classList.remove('animate-pulse', 'text-red-500');
+                    syncIcon.classList.add(colorClass.includes('emerald') ? 'text-blue-600' : 'text-amber-500');
+                }
+            };
+
+            // Set default immediately while waiting for GPS
+            fallbackToDefault();
+
+            nameEl.innerText = "Locating...";
+            distEl.innerText = "Handshaking with satellites...";
+
+            const homeNameEl = document.getElementById('user-location-text');
+            const homeDistEl = document.getElementById('near-dist-status');
+            if (homeNameEl) homeNameEl.innerText = "Scanning Vectors...";
+            if (homeDistEl) homeDistEl.innerText = "Establishing Satellite Uplink...";
+
+            setStatus("Stage 1: Satellite Handshake...", "text-blue-500");
+
+            if (!navigator.geolocation) {
+                finalizeStatus("GPS Not Supported", "text-red-500");
+                return;
+            }
+
+            try {
+                // Racing Geolocation against a 3-second timeout for immediate snappiness
+                const pos = await Promise.race([
+                    new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { 
+                            enableHighAccuracy: true, 
+                            timeout: 8000, 
+                            maximumAge: 0
+                        });
+                    }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("METRO_GPS_TIMEOUT")), 3500))
+                ]);
+
+                lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                await updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                finalizeStatus("Satellite Mode: Active", "text-emerald-500");
+
+                if (window.locWatchId) navigator.geolocation.clearWatch(window.locWatchId);
+                window.locWatchId = navigator.geolocation.watchPosition(
+                    p => {
+                        lastUserLoc = { lat: p.coords.latitude, lng: p.coords.longitude };
+                        updateBoardData(p.coords.latitude, p.coords.longitude);
                     },
-                    err => alert("GPS Restricted. Please check permissions."),
-                    { enableHighAccuracy: true, timeout: 5000 }
+                    err => console.warn("Watch update failed", err),
+                    { enableHighAccuracy: true }
                 );
+
+            } catch (err) {
+                console.warn("Satellite Handshake Fallback:", err.message);
+                let errorMsg = "GPS Timeout";
+                if (err.code === 1) errorMsg = "GPS Restricted";
+
+                finalizeStatus(`${errorMsg}. Ameerpet Hub Active.`, "text-amber-500");
+                // fallbackToDefault was already called, so we're good
+            }
+        }
+
+        function fallbackToDefault() {
+            const ameerpet = stations.find(s => s.name === 'Ameerpet');
+            if (ameerpet) {
+                lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
+                updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
             }
         }
 
@@ -3672,48 +3851,7 @@ HTML_TEMPLATE = """
                 selector.appendChild(opt);
             });
 
-            // Initial state
-            document.getElementById('near-name').innerText = "Acquiring Fix...";
-
-            if (navigator.geolocation) {
-                // Get one point immediately for speed
-                navigator.geolocation.getCurrentPosition(
-                    pos => {
-                        lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                        updateBoardData(pos.coords.latitude, pos.coords.longitude);
-                    },
-                    err => {
-                        console.warn("Rapid fix failed. Waiting for satellite stream.");
-                    },
-                    { enableHighAccuracy: true, timeout: 5000 }
-                );
-
-                // Start continuous watch
-                navigator.geolocation.watchPosition(
-                    pos => {
-                        lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                        updateBoardData(pos.coords.latitude, pos.coords.longitude);
-                        // Auto-move pin on map if it exists
-                        let userPin = document.getElementById('user-location-pin');
-                        if (userPin) {
-                            const pt = project(pos.coords.latitude, pos.coords.longitude);
-                            userPin.setAttribute("transform", `translate(${pt.x}, ${pt.y})`);
-                        }
-                    },
-                    err => {
-                        if (document.getElementById('near-name').innerText === "Acquiring Fix...") {
-                             const ameerpet = stations.find(s => s.name === 'Ameerpet');
-                             lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
-                             updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
-                        }
-                    },
-                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
-                );
-            } else {
-                const ameerpet = stations.find(s => s.name === 'Ameerpet');
-                lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
-                updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
-            }
+            performSatelliteHandshake();
 
             // Atmosphere Refresh (60s)
             if (weatherInterval) clearInterval(weatherInterval);
@@ -3800,74 +3938,59 @@ HTML_TEMPLATE = """
                 // Add Guides (Interchanges)
                 if (data.guides && data.guides.length > 0) {
                     const guideHeader = document.createElement('h5');
-                    guideHeader.className = "text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-6 flex items-center gap-2";
-                    guideHeader.innerHTML = `<i data-lucide="shuffle" size="12"></i> Critical Interchange Vectors`;
+                    guideHeader.className = "text-[11px] font-black text-blue-600 uppercase tracking-[0.2em] mb-6 flex items-center gap-2 pl-2";
+                    guideHeader.innerHTML = `<i data-lucide="shuffle" size="14"></i> Critical Interchange Vectors`;
                     seq.appendChild(guideHeader);
 
                     data.guides.forEach((g, gIdx) => {
                         const gDiv = document.createElement('div');
-                        gDiv.className = "bg-slate-900 border border-slate-800 p-8 rounded-[40px] shadow-2xl mb-10 relative overflow-hidden group border-l-[12px] border-l-blue-500 animate-in slide-in-from-right duration-700";
+                        gDiv.className = "bg-white border border-slate-100 p-5 rounded-3xl shadow-sm mb-6 flex flex-col gap-4 animate-in slide-in-from-bottom duration-500 hover:border-blue-200 transition-all";
 
                         let connectionsHtml = "";
                         if (g.connections && g.connections.length > 0) {
                             connectionsHtml = `
-                                <div class="mt-8 pt-8 border-t border-white/5">
-                                    <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <i data-lucide="radio" size="12" class="animate-pulse"></i> Next Connections at ${g.station}
-                                    </p>
-                                    <div class="space-y-3">
-                                        ${g.connections.map(c => `
-                                            <div class="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors">
-                                                <div class="flex items-center gap-3">
-                                                    <div class="w-1 h-3 rounded-full ${c.line === 'Red' ? 'bg-red-500' : c.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
-                                                    <div>
-                                                        <p class="text-xs font-black text-white">${c.final_stop}</p>
-                                                        <p class="text-[8px] font-bold text-white/40 uppercase tracking-tighter">Line: ${c.line} | Plat ${c.platform}</p>
-                                                    </div>
-                                                </div>
-                                                <div class="text-right">
-                                                    <p class="text-[12px] font-black text-blue-400 tabular-nums">${c.arrival_time_12}</p>
-                                                    <p class="text-[8px] font-black text-white/30 uppercase tracking-widest">${c.wait_mins}m wait</p>
-                                                </div>
+                                <div class="grid grid-cols-2 gap-3 mt-4 border-t border-slate-50 pt-4">
+                                    ${g.connections.slice(0, 4).map(c => `
+                                        <div class="p-3 bg-slate-50 rounded-2xl flex flex-col gap-1 border border-slate-100/50">
+                                            <div class="flex items-center justify-between">
+                                                <div class="w-1 h-3 rounded-full ${c.line === 'Red' ? 'bg-red-500' : c.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
+                                                <span class="text-[9px] font-black text-slate-900 tabular-nums">${c.arrival_time_12}</span>
                                             </div>
-                                        `).join('')}
-                                    </div>
+                                            <span class="text-[7px] font-bold text-slate-400 uppercase tracking-tighter truncate">${c.final_stop}</span>
+                                        </div>
+                                    `).join('')}
                                 </div>
                             `;
                         }
 
                         gDiv.innerHTML = `
-                            <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all"></div>
-                            <div class="flex items-start gap-8 relative z-10">
-                                <div class="flex flex-col items-center gap-4">
-                                    <div class="w-16 h-16 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 shadow-inner">
-                                        <i data-lucide="shuffle" size="28" class="text-blue-400"></i>
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 bg-blue-600/10 text-blue-600 rounded-xl flex items-center justify-center">
+                                        <i data-lucide="shuffle" size="18"></i>
                                     </div>
-                                    <div class="h-10 w-px bg-gradient-to-b from-blue-500/50 to-transparent"></div>
+                                    <div>
+                                        <h6 class="text-[14px] font-black text-slate-900 tracking-tight">${g.station}</h6>
+                                        <p class="text-[9px] font-bold text-slate-400 ml-0.5 uppercase tracking-widest">Digital Transfer Node</p>
+                                    </div>
                                 </div>
-                                <div class="flex-1">
-                                    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-                                        <div>
-                                            <span class="px-3 py-1 bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-[0.2em] rounded-lg border border-blue-500/20 mb-2 inline-block">Interchange Step ${gIdx + 1}</span>
-                                            <h6 class="text-2xl font-black text-white tracking-tighter">${g.station}</h6>
-                                        </div>
-                                        <div class="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-5 py-3 rounded-2xl">
-                                            <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                            <div class="flex flex-col">
-                                                <span class="text-[8px] font-black text-emerald-500/60 uppercase tracking-widest">Reaching @ ${g.reaching_at}</span>
-                                                <span class="text-xs font-black text-white uppercase tracking-wider">Board Platform ${g.platform}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="bg-white/5 p-6 rounded-3xl border border-white/5 relative group/inner hover:bg-white/[0.07] transition-all mb-4">
-                                        <i data-lucide="info" class="absolute right-6 top-6 text-white/10" size="20"></i>
-                                        <p class="text-[14px] lg:text-[16px] font-bold text-slate-200 leading-relaxed italic pr-8">
-                                            "${g.text}"
-                                        </p>
-                                    </div>
-                                    ${connectionsHtml}
+                                <div class="px-2.5 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1.5">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    AT ${g.reaching_at}
                                 </div>
                             </div>
+
+                            <div class="bg-slate-900 text-white p-4 rounded-2xl flex gap-3 shadow-lg shadow-slate-900/10">
+                                <div class="shrink-0 p-1.5 bg-white/10 rounded-lg"><i data-lucide="info" size="12"></i></div>
+                                <div>
+                                    <p class="text-[11px] font-bold leading-relaxed pr-2">${g.text}</p>
+                                    <div class="flex items-center gap-2 mt-2 opacity-60">
+                                        <div class="h-px flex-1 bg-white/20"></div>
+                                        <span class="text-[8px] font-black uppercase tracking-widest text-blue-400">Platform ${g.platform}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ${connectionsHtml}
                         `;
                         seq.appendChild(gDiv);
                     });
@@ -3990,16 +4113,23 @@ HTML_TEMPLATE = """
         }
 
         window.onload = () => {
-            lucide.createIcons();
-            updateClock();
-            setInterval(updateClock, 1000);
-            initGeo(); 
-            initPickers(); 
-            updateLiveTrains(); 
-            loadFeedback(); 
-            renderTickets();
-            loadSavedVectors();
-            activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
+            try {
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+                updateClock();
+                setInterval(updateClock, 1000);
+                initGeo(); 
+                initPickers(); 
+                updateLiveTrains(); 
+                loadFeedback(); 
+                renderTickets();
+                loadSavedVectors();
+                if (activeUpdateInterval) clearInterval(activeUpdateInterval);
+                activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
+            } catch (err) {
+                console.error("Critical Boot Error:", err);
+            }
         };
     </script>
 </body>
