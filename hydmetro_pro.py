@@ -436,6 +436,10 @@ def api_nearest():
     is_weekend = now.weekday() >= 5
     load_val, load_label = predict_load_ai(name, now.hour, is_weekend=is_weekend, weather=weather)
     
+    # AI Insight
+    insight_prompt = f"Give a witty, short (max 15 words) travel tip for a passenger at {name} Metro station in Hyderabad. The current time is {now.strftime('%I:%M %p')} and weather is {weather['condition']}."
+    ai_insight = get_ai_insight(insight_prompt)
+    
     # Landmark Logic (Simplified for brevity)
     landmarks = [{'name': 'Local Hub', 'dist': 0.5}]
     if name == 'Ameerpet':
@@ -489,6 +493,7 @@ def api_nearest():
             'lines': line_active_counts
         },
         'weather': weather,
+        'ai_insight': ai_insight,
         'landmarks': landmarks,
         'first_train': first_train,
         'last_train': last_train,
@@ -1449,7 +1454,11 @@ HTML_TEMPLATE = """
                     <div class="w-10 h-10 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-lg"><i data-lucide="train-front" size="20"></i></div>
                     <div>
                         <h2 id="greeting-mob" class="text-xl font-black text-slate-900 tracking-tight">Welcome...</h2>
-                        <p id="near-metro-mob" class="text-[9px] font-black text-blue-600 uppercase tracking-widest">Finding stations...</p>
+                        <div class="flex items-center gap-2">
+                            <p id="near-metro-mob" class="text-[9px] font-black text-blue-600 uppercase tracking-widest">Finding stations...</p>
+                            <span id="near-weather-mob" class="hidden px-1.5 py-0.5 bg-amber-50 text-amber-600 text-[7px] font-black rounded border border-amber-100 uppercase tracking-widest">--°C</span>
+                            <span id="near-trains-mob" class="hidden px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[7px] font-black rounded border border-blue-100 uppercase tracking-widest"><span id="active-count-mob">--</span> Trains</span>
+                        </div>
                     </div>
                 </div>
                 <button class="p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 shadow-sm"><i data-lucide="bell" size="20"></i></button>
@@ -1596,10 +1605,18 @@ HTML_TEMPLATE = """
                                                  <span class="text-xs font-black text-slate-800 uppercase tracking-tight"><span id="active-count" class="tabular-nums">--</span> Running</span>
                                              </div>
                                              <div class="flex gap-2 mt-2">
-                                                 <span class="px-2 py-0.5 rounded-md bg-red-50 text-red-500 text-[8px] font-black border border-red-100">R: <span id="red-line-active">--</span></span>
-                                                 <span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-500 text-[8px] font-black border border-blue-100">B: <span id="blue-line-active">--</span></span>
-                                                 <span class="px-2 py-0.5 rounded-md bg-green-50 text-green-500 text-[8px] font-black border border-green-100">G: <span id="green-line-active">--</span></span>
+                                                 <span class="px-2 py-0.5 rounded-md bg-red-500 text-white text-[8px] font-black shadow-sm">R: <span id="red-line-active">--</span></span>
+                                                 <span class="px-2 py-0.5 rounded-md bg-blue-500 text-white text-[8px] font-black shadow-sm">B: <span id="blue-line-active">--</span></span>
+                                                 <span class="px-2 py-0.5 rounded-md bg-emerald-500 text-white text-[8px] font-black shadow-sm">G: <span id="green-line-active">--</span></span>
                                              </div>
+                                        </div>
+                                    </div>
+                                    <div id="ai-insight-container-pulse" class="hidden animate-in fade-in slide-in-from-top-2">
+                                        <div class="bg-violet-50/50 p-4 rounded-2xl border border-violet-100/50 flex items-start gap-3">
+                                            <div class="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white shrink-0 shadow-sm">
+                                                <i data-lucide="sparkles" size="14"></i>
+                                            </div>
+                                            <p id="ai-insight-text-pulse" class="text-[10px] font-bold text-violet-700 italic leading-snug">--</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1629,8 +1646,22 @@ HTML_TEMPLATE = """
                             <div class="flex items-center gap-3 lg:gap-5">
                                 <i data-lucide="radio" id="sync-icon" class="text-blue-600 animate-pulse" size="18"></i>
                                 <div class="flex flex-col">
-                                    <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Station</span></h3>
-                                    <span id="satellite-status" class="text-[7px] font-black uppercase text-slate-400 tracking-widest mt-1">Google Synced with IST Satellites</span>
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Station</span></h3>
+                                        <div id="board-weather-indicator" class="hidden flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
+                                            <i data-lucide="cloud-sun" class="text-blue-500" size="10"></i>
+                                            <span id="board-weather-temp" class="text-[9px] font-black text-blue-600 tabular-nums">--°C</span>
+                                        </div>
+                                    </div>
+                                    <div id="ai-insight-container" class="mt-2 hidden animate-in fade-in slide-in-from-left-2">
+                                        <div class="flex items-center gap-2 bg-gradient-to-r from-violet-50 to-blue-50 px-3 py-1.5 rounded-lg border border-violet-100 shadow-sm shadow-violet-500/5">
+                                            <div class="w-5 h-5 bg-violet-600 rounded-md flex items-center justify-center text-white shrink-0 shadow-sm shadow-violet-500/20">
+                                                <i data-lucide="sparkles" size="10"></i>
+                                            </div>
+                                            <p id="ai-insight-text" class="text-[9px] font-bold text-violet-700 italic leading-tight">--</p>
+                                        </div>
+                                    </div>
+                                    <span id="satellite-status" class="text-[7px] font-black uppercase text-slate-400 tracking-widest mt-2 block">Google Synced with IST Satellites</span>
                                 </div>
                             </div>
                             <div class="flex gap-2">
@@ -3639,10 +3670,45 @@ HTML_TEMPLATE = """
                     setElText('weather-detail', data.weather.condition + ' in Hyderabad');
                     setElText('weather-val-mob', data.weather.temp + '°C');
                     setElText('weather-cond-mob', data.weather.condition);
+
+                    // Arrivals Board weather indicator
+                    const boardWeather = document.getElementById('board-weather-indicator');
+                    const boardTemp = document.getElementById('board-weather-temp');
+                    const mobWeather = document.getElementById('near-weather-mob');
+                    
+                    if (boardWeather && boardTemp) {
+                        boardTemp.innerText = data.weather.temp + '°C';
+                        boardWeather.classList.remove('hidden');
+                    }
+                    if (mobWeather) {
+                        mobWeather.innerText = data.weather.temp + '°C';
+                        mobWeather.classList.remove('hidden');
+                    }
                     
                     // Update extended stats if they exist
                     setElText('stat-humidity', data.weather.humidity + '%');
                     setElText('stat-visibility', data.weather.visibility + 'km');
+                }
+
+                // AI Insight Update
+                const insightContainer = document.getElementById('ai-insight-container');
+                const insightText = document.getElementById('ai-insight-text');
+                if (insightContainer && insightText) {
+                    if (data.ai_insight) {
+                        insightText.innerText = data.ai_insight;
+                        insightContainer.classList.remove('hidden');
+                        
+                        const pContainer = document.getElementById('ai-insight-container-pulse');
+                        const pText = document.getElementById('ai-insight-text-pulse');
+                        if (pContainer && pText) {
+                            pText.innerText = data.ai_insight;
+                            pContainer.classList.remove('hidden');
+                        }
+                    } else {
+                        insightContainer.classList.add('hidden');
+                        const pContainer = document.getElementById('ai-insight-container-pulse');
+                        if (pContainer) pContainer.classList.add('hidden');
+                    }
                 }
 
                 const walkContainer = document.getElementById('near-walk-container');
@@ -3689,7 +3755,10 @@ HTML_TEMPLATE = """
 
                 setElText('near-metro-live', data.station.name);
                 setElText('near-metro-mob', 'Near ' + data.station.name + ' Station');
-                setElText('active-count', data.active_trips.total || data.active_trips);
+                const activeCountTotal = data.active_trips.total || data.active_trips;
+                setElText('active-count', activeCountTotal);
+                setElText('active-count-mob', activeCountTotal);
+                if (document.getElementById('near-trains-mob')) document.getElementById('near-trains-mob').classList.remove('hidden');
                 
                 // Update Line-specific counts if elements exist
                 if (data.active_trips.lines) {
