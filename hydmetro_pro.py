@@ -449,16 +449,22 @@ def api_nearest():
 
     # Optimized Global GTFS Stats (Trips active right now)
     trip_times = {}
+    line_active_counts = {'Red': 0, 'Blue': 0, 'Green': 0}
     for row in trips:
         tid = row['trip_id']
         t_arr = row['arrival_time']
+        line = row['line']
         if tid not in trip_times:
-            trip_times[tid] = {'min': t_arr, 'max': t_arr}
+            trip_times[tid] = {'min': t_arr, 'max': t_arr, 'line': line}
         else:
             if t_arr < trip_times[tid]['min']: trip_times[tid]['min'] = t_arr
             if t_arr > trip_times[tid]['max']: trip_times[tid]['max'] = t_arr
 
-    active_count = sum(1 for tid, times in trip_times.items() if times['min'] <= now_str <= times['max'])
+    active_count = 0
+    for tid, times in trip_times.items():
+        if times['min'] <= now_str <= times['max']:
+            active_count += 1
+            line_active_counts[times['line']] += 1
 
     # Format upcoming for display
     upcoming.sort(key=lambda x: x['arrival_time'])
@@ -472,13 +478,16 @@ def api_nearest():
     return jsonify({
         'station': nearest, 
         'distance': round(dist, 2),
-        'walk_dist': round(walk_dist, 2),
+        'walk_dist': round(dist * 1.35, 2),
         'walking_mins': walking_mins,
         'range_status': range_status,
         'upcoming': upcoming, 
         'load_val': load_val, 
         'load_label': load_label,
-        'active_trips': active_count,
+        'active_trips': {
+            'total': active_count,
+            'lines': line_active_counts
+        },
         'weather': weather,
         'landmarks': landmarks,
         'first_train': first_train,
@@ -912,8 +921,16 @@ HTML_TEMPLATE = """
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"></script>
     <script>
-      // Using custom SVG map, no Google Maps script needed
+      // Google Maps Geocoder instance
+      let geocoder;
+      function initGoogleSync() {
+          if (typeof google !== 'undefined') {
+              geocoder = new google.maps.Geocoder();
+              console.log("Google Maps Sync Initialized");
+          }
+      }
     </script>
     <style>
         :root {
@@ -1524,7 +1541,7 @@ HTML_TEMPLATE = """
                                 <div>
                                     <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Nearest Station</h4>
                                     <p id="user-location-text" class="text-2xl lg:text-3xl font-black text-white tracking-tighter mb-1 truncate">Finding stations...</p>
-                                    <p id="near-dist-status" class="text-[10px] font-black uppercase tracking-widest text-blue-400">Locating via Satellite...</p>
+                                    <p id="near-dist-status" class="text-[10px] font-black uppercase tracking-widest text-blue-400">Google Sync Active...</p>
                                 </div>
                                 <div>
                                     <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-white/50 mb-3">Weather</h4>
@@ -1573,9 +1590,16 @@ HTML_TEMPLATE = """
                                     </div>
                                     <div class="flex items-center gap-4">
                                         <div class="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-emerald-600/60 shadow-sm border border-slate-100"><i data-lucide="train-front" size="18"></i></div>
-                                        <div>
-                                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Trains</p>
-                                             <span class="text-xs font-black text-slate-800 uppercase tracking-tight"><span id="active-count" class="tabular-nums">--</span> Trains Running</span>
+                                        <div class="flex-1">
+                                             <div class="flex justify-between items-center">
+                                                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Trains</p>
+                                                 <span class="text-xs font-black text-slate-800 uppercase tracking-tight"><span id="active-count" class="tabular-nums">--</span> Running</span>
+                                             </div>
+                                             <div class="flex gap-2 mt-2">
+                                                 <span class="px-2 py-0.5 rounded-md bg-red-50 text-red-500 text-[8px] font-black border border-red-100">R: <span id="red-line-active">--</span></span>
+                                                 <span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-500 text-[8px] font-black border border-blue-100">B: <span id="blue-line-active">--</span></span>
+                                                 <span class="px-2 py-0.5 rounded-md bg-green-50 text-green-500 text-[8px] font-black border border-green-100">G: <span id="green-line-active">--</span></span>
+                                             </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1606,7 +1630,7 @@ HTML_TEMPLATE = """
                                 <i data-lucide="radio" id="sync-icon" class="text-blue-600 animate-pulse" size="18"></i>
                                 <div class="flex flex-col">
                                     <h3 class="text-[9px] lg:text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Live Departures <span class="text-slate-200 hidden lg:inline mx-4">|</span> <span id="near-metro-live" class="text-blue-600">-- Station</span></h3>
-                                    <span id="satellite-status" class="text-[7px] font-black uppercase text-slate-400 tracking-widest mt-1">Satellite Search Active</span>
+                                    <span id="satellite-status" class="text-[7px] font-black uppercase text-slate-400 tracking-widest mt-1">Google Synced with IST Satellites</span>
                                 </div>
                             </div>
                             <div class="flex gap-2">
@@ -3633,11 +3657,12 @@ HTML_TEMPLATE = """
                 }
                 
                 // Update System Status
-                setElText('live-train-count', data.active_trips + ' Trains Active');
+                setElText('live-train-count', (data.active_trips.total || data.active_trips) + ' Trains Active');
                 
                 const ridershipEl = document.getElementById('ridership-val');
                 if (ridershipEl) {
-                    const estRiders = (data.active_trips * 450) + Math.floor(Math.random() * 200);
+                    const activeCount = data.active_trips.total || data.active_trips;
+                    const estRiders = (activeCount * 450) + Math.floor(Math.random() * 200);
                     ridershipEl.innerText = estRiders.toLocaleString();
                 }
 
@@ -3664,7 +3689,14 @@ HTML_TEMPLATE = """
 
                 setElText('near-metro-live', data.station.name);
                 setElText('near-metro-mob', 'Near ' + data.station.name + ' Station');
-                setElText('active-count', data.active_trips);
+                setElText('active-count', data.active_trips.total || data.active_trips);
+                
+                // Update Line-specific counts if elements exist
+                if (data.active_trips.lines) {
+                    setElText('red-line-active', data.active_trips.lines.Red);
+                    setElText('blue-line-active', data.active_trips.lines.Blue);
+                    setElText('green-line-active', data.active_trips.lines.Green);
+                }
                 
                 // Update Network Stats
                 setElText('stat-stations', data.stations_total || '57');
@@ -3819,18 +3851,18 @@ HTML_TEMPLATE = """
             const nearDist = document.getElementById('near-dist');
 
             if (status) {
-                status.innerText = "Syncing with IST Satellites...";
+                status.innerText = "Syncing with Google Satellite...";
                 status.classList.remove('text-amber-500');
                 status.classList.add('text-emerald-500');
             }
 
             if (userLocText) {
-                userLocText.innerText = "Finding nearest station...";
+                userLocText.innerText = "Syncing Location...";
                 userLocText.classList.add('animate-pulse');
             }
             
-            if (netStatus) netStatus.innerText = "Establishing Satellite Uplink...";
-            if (nearName) nearName.innerText = "Locating...";
+            if (netStatus) netStatus.innerText = "Establishing Google Cloud Uplink...";
+            if (nearName) nearName.innerText = "Geocoding...";
             if (nearDist) nearDist.innerText = "Contacting Satellites...";
 
             try {
@@ -3851,13 +3883,26 @@ HTML_TEMPLATE = """
                 ]);
 
                 gpsFallbackMsg = null;
-                if (userLocText) {
-                    userLocText.classList.remove('animate-pulse');
+                const { latitude: lat, longitude: lng } = pos.coords;
+
+                // Google Geocoding Sync
+                if (typeof google !== 'undefined' && geocoder) {
+                    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+                        if (status === "OK" && results[0]) {
+                            const address = results[0].formatted_address;
+                            console.log("Google Sync Success:", address);
+                            const netStatusEl = document.getElementById('near-dist-status');
+                            if (netStatusEl) {
+                                netStatusEl.innerText = "Google Geo-Sync: " + address.split(',')[0];
+                                netStatusEl.classList.add('text-emerald-400');
+                            }
+                        }
+                    });
                 }
-                
-                lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+                lastUserLoc = { lat, lng };
                 console.log("GPS Fix Acquired:", lastUserLoc);
-                await updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                await updateBoardData(lat, lng);
                 
                 if (status) {
                     status.innerText = "Satellite Mode: Active";
@@ -4211,6 +4256,7 @@ HTML_TEMPLATE = """
 
         window.onload = () => {
             try {
+                initGoogleSync();
                 if (window.lucide) {
                     lucide.createIcons();
                 }
