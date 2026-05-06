@@ -342,11 +342,14 @@ def save_feedback_to_cloud(feedback_data):
 @app.route('/')
 def index():
     ensure_gtfs(force=False) # Only generate if missing
+    now = get_app_now()
     return render_template_string(HTML_TEMPLATE, 
         ALL_STATIONS=STATIONS_LIST, 
         CONNECTIONS=CONNECTIONS, 
         LANDMARKS=LANDMARKS,
-        GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY
+        GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY,
+        SERVER_TIME_ISO=now.isoformat(),
+        SERVER_TIME_EPOCH=now.timestamp()
     )
 
 @app.route('/api/feedback', methods=['POST'])
@@ -480,6 +483,8 @@ def api_nearest():
         'landmarks': landmarks,
         'first_train': first_train,
         'last_train': last_train,
+        'server_time': now.isoformat(),
+        'server_epoch': now.timestamp(),
         'greeting': "Good Morning" if 5 <= now.hour < 12 else "Good Afternoon" if 12 <= now.hour < 17 else "Good Evening"
     })
 
@@ -487,7 +492,10 @@ def api_nearest():
 def api_weather():
     data = request.json
     lat, lng = data.get('lat'), data.get('lng')
+    now = get_app_now()
     weather = get_live_weather(lat=lat, lng=lng)
+    weather['server_time'] = now.isoformat()
+    weather['server_epoch'] = now.timestamp()
     return jsonify(weather)
 
 @app.route('/api/plan', methods=['POST'])
@@ -2629,6 +2637,7 @@ HTML_TEMPLATE = """
             }
         }
 
+        let serverTimeOffset = ({{ SERVER_TIME_EPOCH }} * 1000) - Date.now();
         let currentSentiment = 'neutral';
         let tabState = 'home';
         let simulationHour = -1;
@@ -2657,10 +2666,24 @@ HTML_TEMPLATE = """
                     body: JSON.stringify({ lat: lastUserLoc.lat, lng: lastUserLoc.lng })
                 });
                 const data = await res.json();
+                
+                if (data.server_epoch) {
+                    serverTimeOffset = (data.server_epoch * 1000) - Date.now();
+                }
+
                 const vEl = document.getElementById('weather-val');
                 const dEl = document.getElementById('weather-detail');
-                if (vEl) vEl.innerText = (data.temp || '--') + '°C, ' + (data.condition || '--');
-                if (dEl) dEl.innerText = `Humidity: ${data.humidity || 0}% | Visibility: ${(data.visibility || 0).toFixed(1)}km`;
+                const vElMob = document.getElementById('weather-val-mob');
+                const cElMob = document.getElementById('weather-cond-mob');
+
+                if (vEl) vEl.innerText = (data.temp || '--') + '°C';
+                if (dEl) dEl.innerText = (data.condition || 'Clear') + ' in Hyderabad';
+                if (vElMob) vElMob.innerText = (data.temp || '--') + '°C';
+                if (cElMob) cElMob.innerText = data.condition || 'Cloudy';
+
+                // Update extended stats if they exist
+                setElText('stat-humidity', data.humidity + '%');
+                setElText('stat-visibility', data.visibility + 'km');
                 
                 const weatherRec = (data.temp > 35) ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
                                    (data.condition || '').includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
@@ -3322,7 +3345,7 @@ HTML_TEMPLATE = """
 
         function updateClock() {
             try {
-                let now = new Date();
+                let now = new Date(Date.now() + serverTimeOffset);
                 if (typeof simulationHour !== 'undefined' && simulationHour !== -1) {
                     now.setHours(simulationHour);
                     const envMsg = document.getElementById('env-msg');
@@ -3567,6 +3590,10 @@ HTML_TEMPLATE = """
                 if (!res.ok) throw new Error("API Offline");
                 const data = await res.json();
                 
+                if (data.server_epoch) {
+                    serverTimeOffset = (data.server_epoch * 1000) - Date.now();
+                }
+
                 syncSuccessOnce = true;
                 window.lastNearestStation = data.station;
                 if (lat && lng && !stationId) lastUserLoc = { lat, lng };
@@ -3581,6 +3608,18 @@ HTML_TEMPLATE = """
                 let locDisplay = data.station.name + ', ' + data.distance + ' km';
                 if (data.range_status === 'Out of City') locDisplay = data.station.name + ' (Inter-city)';
                 setElText('user-location-text', locDisplay);
+
+                // Live Weather Update
+                if (data.weather) {
+                    setElText('weather-val', data.weather.temp + '°C');
+                    setElText('weather-detail', data.weather.condition + ' in Hyderabad');
+                    setElText('weather-val-mob', data.weather.temp + '°C');
+                    setElText('weather-cond-mob', data.weather.condition);
+                    
+                    // Update extended stats if they exist
+                    setElText('stat-humidity', data.weather.humidity + '%');
+                    setElText('stat-visibility', data.weather.visibility + 'km');
+                }
 
                 const walkContainer = document.getElementById('near-walk-container');
                 const walkTimeEl = document.getElementById('near-walk-time');
@@ -3600,10 +3639,6 @@ HTML_TEMPLATE = """
                 if (ridershipEl) {
                     const estRiders = (data.active_trips * 450) + Math.floor(Math.random() * 200);
                     ridershipEl.innerText = estRiders.toLocaleString();
-                }
-                if (document.getElementById('weather-val-mob')) {
-                    setElText('weather-val-mob', data.weather.temp + '°C');
-                    setElText('weather-cond-mob', data.weather.condition);
                 }
 
                 let statusLine = `${data.walking_mins} min walk | ${data.load_label}`;
@@ -3784,7 +3819,7 @@ HTML_TEMPLATE = """
             const nearDist = document.getElementById('near-dist');
 
             if (status) {
-                status.innerText = "Initiating Satellite Handshake...";
+                status.innerText = "Syncing with IST Satellites...";
                 status.classList.remove('text-amber-500');
                 status.classList.add('text-emerald-500');
             }
