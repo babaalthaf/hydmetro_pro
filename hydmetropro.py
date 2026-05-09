@@ -1150,7 +1150,23 @@ HTML_TEMPLATE = """
             display: inline-block; padding: 0 40px; color: #64748b; font-size: 10px;
             font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em;
         }
-        .ticker-item span { color: #2563eb; margin-right: 8px; }
+        .ticker-item span { color: #2563eb; margin-right: 8px; position: relative; }
+        .ticker-item span::before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 6px;
+            height: 6px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse-ring 2s infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: translateY(-50%) scale(0.8); opacity: 1; }
+            100% { transform: translateY(-50%) scale(2.5); opacity: 0; }
+        }
         @keyframes ticker-kf {
             0% { transform: translate3d(0, 0, 0); }
             100% { transform: translate3d(-100%, 0, 0); }
@@ -1192,6 +1208,17 @@ HTML_TEMPLATE = """
         <div onclick="showTab('history')" class="mobile-link" id="mob-history"><i data-lucide="qr-code"></i><span>Tickets</span></div>
     </div>
 
+    <!-- Global Notification Ticker -->
+    <div class="ticker-wrap shadow-xl bg-white/80 backdrop-blur-md border-y border-slate-100 mb-4 sticky top-0 z-[4000]">
+        <div id="neural-ticker">
+            <div class="ticker-item" id="ticker-live-status"><span>LIVE</span> SYNCING STATION CROWD DYNAMICS...</div>
+            <div class="ticker-item"><span>INFO</span> METRO NETWORK ACTIVE. WELCOME TO HYDMETRO.</div>
+            <div class="ticker-item"><span>LOADING</span> PREDICTING CROWD FLOW FOR THE NEXT HOUR.</div>
+            <div class="ticker-item"><span>SYSTEM</span> 99% ON-TIME PERFORMANCE DETECTED.</div>
+            <div class="ticker-item"><span>COMFORT</span> TRAIN TEMPERATURE OPTIMIZED FOR JOURNEY.</div>
+        </div>
+    </div>
+
     <div class="main" id="main-content">
         <div id="tab-home" class="tab-content active">
             <header class="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-8 mb-2">
@@ -1215,15 +1242,6 @@ HTML_TEMPLATE = """
                     <span id="date" class="text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">October 24, 2024</span>
                 </div>
             </header>
-
-            <div class="ticker-wrap shadow-xl">
-                <div id="neural-ticker">
-                    <div class="ticker-item"><span>INFO</span> METRO NETWORK ACTIVE. WELCOME TO HYDMETRO PRO.</div>
-                    <div class="ticker-item"><span>DENSITY</span> PREDICTING NORMAL FLOW FOR THE NEXT HOUR.</div>
-                    <div class="ticker-item"><span>SYSTEM</span> 99% ON-TIME PERFORMANCE DETECTED.</div>
-                    <div class="ticker-item"><span>CLIMATE</span> TRAIN TEMPERATURE OPTIMIZED FOR COMFORT.</div>
-                </div>
-            </div>
 
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-8 mb-8">
                 <div class="glass-card flex p-4 lg:p-6 items-center gap-4 lg:gap-6 border-slate-200 overflow-hidden relative group">
@@ -1250,6 +1268,7 @@ HTML_TEMPLATE = """
                         <p class="text-[8px] lg:text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 lg:mb-1">Atmosphere</p>
                         <h3 id="weather-val" class="text-[11px] lg:text-sm font-black text-slate-800">--°C</h3>
                         <p id="weather-detail" class="text-[7px] lg:text-[8px] font-bold text-slate-400 uppercase tracking-tight">Syncing Sky...</p>
+                        <div id="weather-indicator" class="hidden"><span class="text-[8px] font-bold text-emerald-500 uppercase tracking-[0.2em] flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>Live</span></div>
                     </div>
                 </div>
                 <div class="glass-card col-span-2 hidden lg:flex p-6 items-center justify-between border-blue-100 bg-blue-600 text-white overflow-hidden relative">
@@ -1257,12 +1276,12 @@ HTML_TEMPLATE = """
                     <div class="flex items-center gap-6 relative z-10">
                         <div class="w-14 h-14 bg-white/20 text-white rounded-2xl flex items-center justify-center"><i data-lucide="activity" size="24"></i></div>
                         <div>
-                            <p class="text-[9px] font-black text-white/70 uppercase tracking-widest mb-1">GTFS Network Pulse</p>
+                            <p class="text-[9px] font-black text-white/70 uppercase tracking-widest mb-1">Network Status</p>
                             <h3 class="text-xl font-black text-white tracking-tighter">Trips Active: <span id="active-count" class="text-white tabular-nums">--</span></h3>
                         </div>
                     </div>
                     <div class="text-right relative z-10">
-                         <span id="load-status" class="px-3 py-1 bg-white/20 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/20">Loading Matrix...</span>
+                         <span id="load-status" class="px-3 py-1 bg-white/20 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/20">System Status Active</span>
                     </div>
                 </div>
             </div>
@@ -1302,11 +1321,11 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Favorite Vectors Section -->
+                    <!-- Saved Routes Section -->
                     <div id="fav-vectors-section" class="hidden animate-in fade-in duration-1000">
                         <div class="flex items-center justify-between mb-6 px-4">
                             <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 flex items-center gap-2">
-                                <i data-lucide="star" size="14" class="text-amber-500"></i> Frequent Neural Vectors
+                                <i data-lucide="star" size="14" class="text-amber-500"></i> Frequent Routes
                             </h4>
                         </div>
                         <div id="fav-vectors-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1327,9 +1346,9 @@ HTML_TEMPLATE = """
                     <div class="glass-card action-card border-none p-10 bg-white overflow-hidden relative shadow-2xl shadow-slate-200/50">
                         <div class="absolute -right-5 -top-5 w-40 h-40 bg-blue-50 rounded-full blur-[60px]"></div>
                         <i data-lucide="scan" class="mb-8 text-blue-600" size="32"></i>
-                        <h4 class="text-xl font-black mb-3 relative z-10 tracking-tight text-slate-900">Neural Connect</h4>
-                        <p class="text-xs text-slate-400 mb-10 relative z-10 font-bold uppercase tracking-widest">Recharge your smart matrix card via NFC interface.</p>
-                        <button class="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest">Digital Recharge</button>
+                        <h4 class="text-xl font-black mb-3 relative z-10 tracking-tight text-slate-900">Smart Card</h4>
+                        <p class="text-xs text-slate-400 mb-10 relative z-10 font-bold uppercase tracking-widest">Recharge your metro card instantly from your phone.</p>
+                        <button class="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest">Quick Recharge</button>
                     </div>
                 </div>
             </div>
@@ -1493,107 +1512,85 @@ HTML_TEMPLATE = """
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-3">
                             <button onclick="saveCurrentVector()" id="save-vector-btn" class="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-slate-200 transition-all">
-                                <i data-lucide="star" size="14"></i> Save Vector
-                            </button>
-                            <button onclick="quickCompleteJourney()" id="complete-journey-btn" class="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">
-                                <i data-lucide="check-circle" size="14"></i> Complete Journey
+                                <i data-lucide="star" size="14"></i> Save Route
                             </button>
                             <button onclick="shareRoute()" class="p-3 bg-slate-100 rounded-2xl text-slate-400 hover:text-slate-600 transition-all"><i data-lucide="share-2" size="18"></i></button>
                         </div>
-                        <div class="hidden lg:flex items-center gap-2">
+                        <div class="flex items-center gap-2">
                             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Real-Time Sync active</span>
+                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Live Updates</span>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <!-- AI Recommendation Box -->
-                        <div class="glass-card md:col-span-1 border-none bg-slate-50 p-6 flex flex-col gap-4 shadow-sm border border-slate-100">
-                            <div class="flex items-center gap-4">
-                                <div class="p-2.5 bg-blue-50 text-blue-600 rounded-xl"><i data-lucide="cpu" size="16"></i></div>
-                                <h5 class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Neural Path Logic</h5>
+                    <!-- Metrics Grid -->
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div class="flex items-center gap-2 text-blue-600">
+                                <i data-lucide="users" size="14"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Live Crowding</span>
                             </div>
-                            <p id="route-rec" class="text-[13px] font-bold text-slate-700 italic pr-2 leading-relaxed">--</p>
-                        </div>
-
-                        <!-- Crowd Dynamics Card -->
-                        <div class="glass-card md:col-span-1 border-none bg-slate-50 p-6 flex flex-col gap-4 shadow-sm border border-slate-100">
-                            <div class="flex items-center gap-4">
-                                <div class="p-2.5 bg-blue-50 text-blue-600 rounded-xl"><i data-lucide="users" size="16"></i></div>
-                                <h5 class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Crowd Density</h5>
-                            </div>
-                            <div class="flex-1">
-                                <div class="flex justify-between items-center mb-2">
-                                    <p id="route-load-forecast" class="text-[13px] font-black text-slate-800 tracking-tight">Analyzing...</p>
-                                    <span id="route-peak-pct" class="text-[9px] font-black px-2 py-1 bg-white rounded-lg border border-slate-200">--% PK</span>
-                                </div>
-                                <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                    <div id="load-bar" class="h-full bg-blue-600 transition-all duration-1000" style="width: 0%"></div>
+                            <div class="flex flex-col">
+                                <span id="route-load-val" class="text-lg font-black text-slate-900">--%</span>
+                                <div class="w-full h-1 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                                    <div id="route-load-bar" class="h-full bg-blue-600 w-0 transition-all duration-1000"></div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Eco Metrics Card -->
-                        <div class="glass-card md:col-span-1 border-none bg-emerald-50 p-6 flex flex-col gap-4 shadow-sm border border-emerald-100">
-                            <div class="flex items-center gap-4">
-                                <div class="p-2.5 bg-emerald-500 text-white rounded-xl"><i data-lucide="leaf" size="16"></i></div>
-                                <h5 class="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Eco Impact</h5>
+                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div class="flex items-center gap-2 text-indigo-600">
+                                <i data-lucide="brain" size="14"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Trip Advice</span>
                             </div>
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <p id="route-co2" class="text-xl font-black text-emerald-700 tabular-nums">0.0kg</p>
-                                    <p class="text-[8px] font-bold text-emerald-600/60 uppercase">CO2 Offset</p>
-                                </div>
-                                <div>
-                                    <p id="route-cal" class="text-xl font-black text-emerald-700 tabular-nums">0</p>
-                                    <p class="text-[8px] font-bold text-emerald-600/60 uppercase">Kcal Burned</p>
-                                </div>
+                            <p id="route-rec" class="text-[11px] font-bold text-slate-600 leading-tight line-clamp-2">--</p>
+                        </div>
+
+                        <div class="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 shadow-sm flex flex-col gap-2">
+                            <div class="flex items-center gap-2 text-emerald-600">
+                                <i data-lucide="leaf" size="14"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Green Travel</span>
                             </div>
+                            <div class="flex justify-between items-end">
+                                <span id="route-eco-val" class="text-lg font-black text-emerald-700">--</span>
+                                <span class="text-[8px] font-black text-emerald-600/60 uppercase pb-1">Saved</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div class="flex items-center gap-2 text-slate-400">
+                                <i data-lucide="clock" size="14"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Travel Time</span>
+                            </div>
+                            <span id="route-dur" class="text-lg font-black text-slate-900">--</span>
+                        </div>
+
+                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                            <div class="flex items-center gap-2 text-slate-400">
+                                <i data-lucide="map" size="14"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Distance</span>
+                            </div>
+                            <span id="route-dist-km" class="text-lg font-black text-slate-900">-- KM</span>
+                        </div>
+
+                        <div class="bg-blue-600 p-5 rounded-3xl shadow-lg flex flex-col gap-2 text-white">
+                            <div class="flex items-center gap-2 opacity-80">
+                                <i data-lucide="credit-card" size="14"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Ticket Fare</span>
+                            </div>
+                            <span id="route-fare" class="text-xl font-black">₹--</span>
                         </div>
                     </div>
 
-                    <div id="personalized-recommendations" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        <!-- Personalized items injected here -->
-                    </div>
-
-                    <div class="glass-card p-0 overflow-hidden border-none shadow-2xl bg-white rounded-[40px]">
-                        <div class="p-10 lg:p-12 bg-blue-600 text-white flex flex-col lg:flex-row lg:justify-between items-center overflow-hidden relative gap-6">
-                            <div class="absolute -left-10 -bottom-10 w-60 h-60 bg-blue-600/20 rounded-full blur-3xl opacity-50"></div>
-                            <div class="relative z-10 w-full">
-                                <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-8 text-center lg:text-left">
-                                    <div>
-                                        <p id="route-dur" class="text-4xl lg:text-6xl font-black leading-none tabular-nums tracking-tighter">--</p>
-                                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mt-5">Transit Time</p>
-                                    </div>
-                                    <div>
-                                        <p id="route-fare" class="text-4xl lg:text-6xl font-black leading-none tabular-nums tracking-tighter">₹--</p>
-                                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mt-5">Total Fare</p>
-                                    </div>
-                                    <div>
-                                        <p id="route-dist-main" class="text-4xl lg:text-6xl font-black leading-none tabular-nums tracking-tighter text-blue-400">--</p>
-                                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mt-5">Distance (KM)</p>
-                                    </div>
-                                </div>
-                            </div>
+                    <!-- Station Stop List -->
+                    <div class="bg-white rounded-[32px] border border-slate-100 shadow-xl overflow-hidden mt-2">
+                        <div class="p-6 bg-slate-50 border-b border-slate-100">
+                            <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-400">Stops on your way</h4>
                         </div>
-                        <div class="px-10 py-6 bg-slate-50 border-b border-slate-100 flex justify-between">
-                             <div class="flex items-center gap-2"><i data-lucide="layers" class="text-slate-400" size="14"></i> <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Optimized Route | <span id="route-dist">0</span> KM Total</span></div>
-                             <div class="flex items-center gap-2"><i data-lucide="zap" class="text-green-500" size="14"></i> <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Neural Sync</span></div>
-                        </div>
-                        <div class="p-10 bg-white">
-                            <div id="route-seq" class="border-l-2 border-slate-100 ml-5 pl-10 space-y-8 py-2"></div>
-                        </div>
-
-                        <!-- Upcoming Trains List -->
-                        <div class="p-10 bg-slate-50/50 border-t border-slate-100">
-                             <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-8 flex items-center gap-2">
-                                <i data-lucide="clock" size="14" class="text-blue-500"></i> Next 1 Hour Arriving Trains
-                             </h4>
-                             <div id="schedule-list" class="space-y-4">
-                                 <p class="text-xs font-bold text-slate-300 italic">Finding viable transit vectors...</p>
-                             </div>
+                        <div id="route-stops-list" class="p-6 space-y-4">
+                            <!-- Injected Stations -->
                         </div>
                     </div>
+                </div>
 
                     <!-- Digital Ticket & Payment Hub -->
                     <div class="glass-card p-10 border-none bg-blue-600 text-white relative overflow-hidden">
@@ -2081,22 +2078,42 @@ HTML_TEMPLATE = """
         }
 
         async function refreshWeather() {
-            if (!lastUserLoc) return;
-            try {
-                const res = await fetch('/api/weather', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ lat: lastUserLoc.lat, lng: lastUserLoc.lng })
-                });
-                const data = await res.json();
-                document.getElementById('weather-val').innerText = data.temp + '°C, ' + data.condition;
-                document.getElementById('weather-detail').innerText = `Humidity: ${data.humidity}% | Visibility: ${data.visibility.toFixed(1)}km`;
-                
-                const weatherRec = data.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
-                                   data.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
-                                   "Neural processing active. Enjoy your commute across the network.";
-                document.getElementById('env-msg').innerText = weatherRec;
-            } catch (e) { console.warn("Weather Refresh Fail", e); }
+            const updateWeather = async (lat, lng) => {
+                try {
+                    const res = await fetch('/api/weather', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ lat, lng })
+                    });
+                    const data = await res.json();
+                    document.getElementById('weather-val').innerText = data.temp + '°C, ' + data.condition;
+                    document.getElementById('weather-detail').innerText = `Humidity: ${data.humidity}% | Visibility: ${data.visibility.toFixed(1)}km`;
+                    
+                    const weatherRec = data.temp > 35 ? "Extreme heatwave detected. AC Metro cabins are optimal for travel today." :
+                                       data.condition.includes("Rain") ? "Rain detected. Metro is the safest and driest transit route." :
+                                       "Environment synchronized. Live updates active for your location.";
+                    document.getElementById('env-msg').innerText = weatherRec;
+                    
+                    const weatherIndicator = document.getElementById('weather-indicator');
+                    if (weatherIndicator) {
+                        const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        weatherIndicator.innerHTML = `<span class="text-[8px] font-bold text-emerald-500 uppercase tracking-[0.2em] flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>Live: ${timeStr}</span>`;
+                        weatherIndicator.classList.remove('hidden');
+                    }
+                } catch (e) { console.warn("Weather Refresh Fail", e); }
+            };
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    pos => updateWeather(pos.coords.latitude, pos.coords.longitude),
+                    err => {
+                        if (lastUserLoc) updateWeather(lastUserLoc.lat, lastUserLoc.lng);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            } else if (lastUserLoc) {
+                updateWeather(lastUserLoc.lat, lastUserLoc.lng);
+            }
         }
 
         function renderStationDirectory() {
@@ -3080,6 +3097,12 @@ HTML_TEMPLATE = """
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
 
+                // Update Global Notification Ticker with Load Prediction
+                const tickerLive = document.getElementById('ticker-live-status');
+                if (tickerLive) {
+                    tickerLive.innerHTML = `<span>LIVE</span> ${data.station.name}: ${data.load_val}% Crowd Density (${data.load_label})`;
+                }
+
                 document.getElementById('near-metro-live').innerText = data.station.name;
                 if (document.getElementById('near-metro-mob')) {
                     document.getElementById('near-metro-mob').innerText = 'Near ' + data.station.name + ' Hub';
@@ -3174,6 +3197,7 @@ HTML_TEMPLATE = """
                     pos => {
                         lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                         updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                        refreshWeather();
                     },
                     err => alert("GPS Restricted. Please check permissions."),
                     { enableHighAccuracy: true, timeout: 5000 }
@@ -3204,6 +3228,7 @@ HTML_TEMPLATE = """
                     pos => {
                         lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                         updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                        refreshWeather();
                     },
                     err => {
                         console.warn("Rapid fix failed. Waiting for satellite stream.");
@@ -3216,6 +3241,7 @@ HTML_TEMPLATE = """
                     pos => {
                         lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                         updateBoardData(pos.coords.latitude, pos.coords.longitude);
+                        refreshWeather();
                     },
                     err => {
                         if (document.getElementById('near-name').innerText === "Acquiring Fix...") {
@@ -3235,6 +3261,11 @@ HTML_TEMPLATE = """
             // Atmosphere Refresh (60s)
             if (weatherInterval) clearInterval(weatherInterval);
             weatherInterval = setInterval(refreshWeather, 60000);
+
+            // Live Feed Refresh (2 mins) to update crowd density even if stationary
+            setInterval(() => {
+                if (lastUserLoc) updateBoardData(lastUserLoc.lat, lastUserLoc.lng);
+            }, 120000);
 
             // Global shortcut for Map Search
             window.addEventListener('keydown', (e) => {
@@ -3317,158 +3348,82 @@ HTML_TEMPLATE = """
                 const emptyState = document.getElementById('route-empty');
                 if (emptyState) emptyState.classList.add('hidden');
                 
-                // Details
-                document.getElementById('route-dur').innerText = (data.duration || 0) + 'm';
+                // Updates for new mobile UI metrics
+                document.getElementById('route-dur').innerText = data.duration + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
-                document.getElementById('route-dist-main').innerText = data.total_km;
-                document.getElementById('route-dist').innerText = data.total_km;
+                document.getElementById('route-dist-km').innerText = data.total_km + ' KM';
                 document.getElementById('route-rec').innerText = data.recommendation;
                 
                 // Eco Metrics
-                document.getElementById('route-co2').innerText = (data.eco.co2 || 0) + 'kg';
-                document.getElementById('route-cal').innerText = (data.eco.calories || 0);
+                document.getElementById('route-eco-val').innerText = data.eco.co2 + 'kg';
 
-                // Public Load Projection
-                const loadVal = data.load || 0;
-                const loadForecast = document.getElementById('route-load-forecast');
-                const peakPct = document.getElementById('route-peak-pct');
-                const loadBar = document.getElementById('load-bar');
-
-                loadForecast.innerText = `${loadVal}% Capacity Utilization`;
-                peakPct.innerText = `${data.peak_intensity || 0}% PK`;
-                loadBar.style.width = `${loadVal}%`;
+                // Crowd Data
+                const loadVal = Math.round(data.load || 35);
+                document.getElementById('route-load-val').innerText = loadVal + '%';
+                const loadBar = document.getElementById('route-load-bar');
+                if (loadBar) {
+                    loadBar.style.width = loadVal + '%';
+                    loadBar.className = 'h-full transition-all duration-1000 ' + 
+                                      (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
+                }
                 
-                // Color bar based on load
-                loadBar.className = 'h-full transition-all duration-1000 ' + 
-                                  (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
-                
-                // Personalized Recommendations rendering
+                // Personalized Recommendations
                 const persRecCont = document.getElementById('personalized-recommendations');
-                persRecCont.innerHTML = '';
-                if (data.personalized_advices && data.personalized_advices.length > 0) {
-                    persRecCont.classList.remove('hidden');
-                    data.personalized_advices.forEach(adv => {
-                        const card = document.createElement('div');
-                        card.className = "bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex items-start gap-4 transition-all hover:shadow-md group";
-                        
-                        let accentColor = "bg-blue-50 text-blue-600";
-                        if (adv.type === 'congestion') accentColor = "bg-amber-50 text-amber-600";
-                        if (adv.type === 'weather') accentColor = "bg-sky-50 text-sky-600";
-                        if (adv.type === 'it-hub') accentColor = "bg-indigo-50 text-indigo-600";
-
-                        card.innerHTML = `
-                            <div class="w-12 h-12 ${accentColor} rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                                <i data-lucide="${adv.icon}" size="20"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-black text-slate-800 uppercase tracking-tight mb-1">${adv.title}</h4>
-                                <p class="text-[11px] font-bold text-slate-500 leading-relaxed">${adv.text}</p>
-                            </div>
-                        `;
-                        persRecCont.appendChild(card);
-                    });
-                    lucide.createIcons();
-                } else {
-                    persRecCont.classList.add('hidden');
+                if (persRecCont) {
+                    persRecCont.innerHTML = '';
+                    if (data.personalized_advices && data.personalized_advices.length > 0) {
+                        persRecCont.classList.remove('hidden');
+                        data.personalized_advices.forEach(adv => {
+                            const card = document.createElement('div');
+                            card.className = "bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-start gap-4";
+                            card.innerHTML = `
+                                <div class="w-10 h-10 bg-slate-50 text-slate-600 rounded-xl flex items-center justify-center shrink-0">
+                                    <i data-lucide="${adv.icon}" size="16"></i>
+                                </div>
+                                <div>
+                                    <h4 class="text-[10px] font-black text-slate-800 uppercase mb-0.5">${adv.title}</h4>
+                                    <p class="text-[9px] font-bold text-slate-500 leading-tight">${adv.text}</p>
+                                </div>
+                            `;
+                            persRecCont.appendChild(card);
+                        });
+                        lucide.createIcons();
+                    } else {
+                        persRecCont.classList.add('hidden');
+                    }
                 }
 
                 lastCalculatedFare = data.fare;
                 
-                const seq = document.getElementById('route-seq'); seq.innerHTML = '';
-                
-                // Add Metrics Grid
-                const metricsDiv = document.createElement('div');
-                metricsDiv.className = "grid grid-cols-2 gap-4 mb-8 bg-slate-50 p-6 rounded-[24px] border border-slate-100";
-                metricsDiv.innerHTML = `
-                    <div class="flex flex-col"><span class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Peak Intensity</span><span class="text-[13px] font-bold text-slate-700">${data.metrics.peak}</span></div>
-                    <div class="flex flex-col"><span class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Vector Bias</span><span class="text-[13px] font-bold text-slate-700">${data.metrics.it_hub}</span></div>
-                `;
-                seq.appendChild(metricsDiv);
-
-                // Add Guides (Interchanges)
-                if (data.guides && data.guides.length > 0) {
-                    const guideHeader = document.createElement('h5');
-                    guideHeader.className = "text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-6 flex items-center gap-2";
-                    guideHeader.innerHTML = `<i data-lucide="shuffle" size="12"></i> Critical Interchange Vectors`;
-                    seq.appendChild(guideHeader);
-                    
-                    data.guides.forEach((g, gIdx) => {
-                        const gDiv = document.createElement('div');
-                        gDiv.className = "bg-white border border-slate-200 p-8 rounded-[40px] shadow-2xl mb-10 relative overflow-hidden group border-l-[12px] border-l-blue-500 animate-in slide-in-from-right duration-700";
+                // Render Stops List (In-between metro stations)
+                const stopsCont = document.getElementById('route-stops-list');
+                if (stopsCont) {
+                    stopsCont.innerHTML = '';
+                    data.sequence.forEach((s, idx) => {
+                        const sDiv = document.createElement('div');
+                        sDiv.className = "flex items-center gap-4 group";
                         
-                        let connectionsHtml = "";
-                        if (g.connections && g.connections.length > 0) {
-                            connectionsHtml = `
-                                <div class="mt-8 pt-8 border-t border-white/5">
-                                    <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <i data-lucide="radio" size="12" class="animate-pulse"></i> Next Connections at ${g.station}
-                                    </p>
-                                    <div class="space-y-3">
-                                        ${g.connections.map(c => `
-                                            <div class="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors">
-                                                <div class="flex items-center gap-3">
-                                                    <div class="w-1 h-3 rounded-full ${c.line === 'Red' ? 'bg-red-500' : c.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
-                                                    <div>
-                                                        <p class="text-xs font-black text-white">${c.final_stop}</p>
-                                                        <p class="text-[8px] font-bold text-white/40 uppercase tracking-tighter">Line: ${c.line} | Plat ${c.platform}</p>
-                                                    </div>
-                                                </div>
-                                                <div class="text-right">
-                                                    <p class="text-[12px] font-black text-blue-400 tabular-nums">${c.arrival_time_12}</p>
-                                                    <p class="text-[8px] font-black text-white/30 uppercase tracking-widest">${c.wait_mins}m wait</p>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `;
-                        }
+                        const lineCol = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
+                        const dotSize = idx === 0 || idx === data.sequence.length - 1 ? 'w-4 h-4 ring-4' : 'w-2.5 h-2.5';
+                        const ringCol = s.line === 'Red' ? 'ring-red-100' : s.line === 'Blue' ? 'ring-blue-100' : 'ring-green-100';
 
-                        gDiv.innerHTML = `
-                            <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all"></div>
-                            <div class="flex items-start gap-8 relative z-10">
-                                <div class="flex flex-col items-center gap-4">
-                                    <div class="w-16 h-16 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 shadow-inner">
-                                        <i data-lucide="shuffle" size="28" class="text-blue-400"></i>
-                                    </div>
-                                    <div class="h-10 w-px bg-gradient-to-b from-blue-500/50 to-transparent"></div>
+                        sDiv.innerHTML = `
+                            <div class="relative flex flex-col items-center">
+                                <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-transform group-hover:scale-125"></div>
+                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-full w-0.5 h-4 ${lineCol} opacity-20"></div>` : ''}
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex justify-between items-center">
+                                    <p class="text-xs font-black text-slate-800">${s.name}</p>
+                                    <span class="text-[9px] font-black text-slate-300 uppercase">${s.reaching_at}</span>
                                 </div>
-                                <div class="flex-1">
-                                    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-                                        <div>
-                                            <span class="px-3 py-1 bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-[0.2em] rounded-lg border border-blue-500/20 mb-2 inline-block">Interchange Step ${gIdx + 1}</span>
-                                            <h6 class="text-2xl font-black text-white tracking-tighter">${g.station}</h6>
-                                        </div>
-                                        <div class="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-5 py-3 rounded-2xl">
-                                            <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                            <div class="flex flex-col">
-                                                <span class="text-[8px] font-black text-emerald-500/60 uppercase tracking-widest">Reaching @ ${g.reaching_at}</span>
-                                                <span class="text-xs font-black text-white uppercase tracking-wider">Board Platform ${g.platform}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="bg-indigo-600/10 p-6 rounded-3xl border border-indigo-500/10 relative group/inner hover:bg-indigo-600/15 transition-all mb-4">
-                                        <i data-lucide="info" class="absolute right-6 top-6 text-indigo-400/20" size="20"></i>
-                                        <div class="flex items-center gap-2 mb-3">
-                                            <span class="text-[9px] font-black text-indigo-500 uppercase tracking-[0.2em] bg-indigo-500/10 px-3 py-1 rounded-lg border border-indigo-500/10">Est. Transfer: ${g.time_estimate}</span>
-                                        </div>
-                                        <p class="text-[14px] lg:text-[16px] font-black text-slate-900 leading-relaxed mb-6 pr-8">
-                                            "${g.text}"
-                                        </p>
-                                        <div class="space-y-4 pt-6 border-t border-slate-100">
-                                            ${g.steps.map((st, si) => `
-                                                <div class="flex gap-4 items-start">
-                                                    <div class="w-6 h-6 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-[10px] font-black shrink-0 shadow-lg shadow-indigo-100">${si+1}</div>
-                                                    <p class="text-xs font-bold text-slate-600 leading-relaxed">${st}</p>
-                                                </div>
-                                            `).join('')}
-                                        </div>
-                                    </div>
-                                    ${connectionsHtml}
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">${s.line} Line</span>
+                                    ${s.predicted_load ? `<span class="text-[7px] font-black px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 uppercase tracking-tighter">${s.predicted_load} Crowd</span>` : ''}
                                 </div>
                             </div>
                         `;
-                        seq.appendChild(gDiv);
+                        stopsCont.appendChild(sDiv);
                     });
                 }
 
