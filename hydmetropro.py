@@ -2961,6 +2961,10 @@ HTML_TEMPLATE = """
             } else {
                 closeOverlay();
             }
+            if(id === 'routes') {
+                const startSt = document.getElementById('start-st');
+                if(startSt && startSt.value) updateLiveStationFeed(startSt.value);
+            }
             if(id === 'history') renderTickets();
             if(id === 'details') renderStationDirectory();
         }
