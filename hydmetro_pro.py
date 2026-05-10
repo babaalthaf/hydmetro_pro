@@ -3893,63 +3893,19 @@ HTML_TEMPLATE = """
                 if (emptyState) emptyState.classList.add('hidden');
                 
                 // Updates for simplified UI metrics
-                const routeSummary = document.getElementById('route-summary');
-                if (routeSummary) {
-                    routeSummary.innerHTML = `
-                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                            <div class="bg-blue-600 p-6 rounded-[40px] text-white shadow-2xl shadow-blue-500/20 relative overflow-hidden group">
-                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Transit Fare</p>
-                                <div class="flex items-baseline gap-1">
-                                    <span class="text-3xl font-black italic">₹${data.fare}</span>
-                                </div>
-                                <div class="mt-4 flex items-center gap-2">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse"></span>
-                                    <span class="text-[8px] font-black uppercase opacity-60">Verified Fare Matrix</span>
-                                </div>
-                            </div>
-                            
-                            <div class="bg-indigo-600 p-6 rounded-[40px] text-white shadow-2xl shadow-indigo-500/20 relative overflow-hidden group">
-                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Vector Range</p>
-                                <div class="flex items-baseline gap-1">
-                                    <span class="text-3xl font-black italic">${data.total_km}</span>
-                                    <span class="text-sm font-black italic opacity-60">KM</span>
-                                </div>
-                                <div class="mt-4 flex items-center gap-2">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-indigo-300 animate-pulse"></span>
-                                    <span class="text-[8px] font-black uppercase opacity-60">Linear Geodesic</span>
-                                </div>
-                            </div>
+                const durEl = document.getElementById('route-dur');
+                const distEl = document.getElementById('route-dist-km');
+                const fareEl = document.getElementById('route-fare');
+                const loadValEl = document.getElementById('route-load-val');
+                const loadLabelEl = document.getElementById('route-load-label');
+                const recEl = document.getElementById('route-rec');
 
-                            <div class="bg-slate-900 p-6 rounded-[40px] text-white shadow-2xl shadow-slate-500/20 relative overflow-hidden group">
-                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Cluster Density</p>
-                                <div class="flex items-baseline gap-2">
-                                    <span class="text-3xl font-black italic">${data.load}%</span>
-                                    <span class="px-2 py-0.5 bg-white/10 rounded text-[8px] font-black uppercase">${data.load < 40 ? 'OPTIMAL' : 'MODERATE'}</span>
-                                </div>
-                                <div class="mt-4 flex items-center gap-2">
-                                    <span class="w-1.5 h-1.5 rounded-full ${data.load < 40 ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse"></span>
-                                    <span class="text-[8px] font-black uppercase opacity-60">Live Ridership Flux</span>
-                                </div>
-                            </div>
-
-                            <div class="bg-emerald-600 p-6 rounded-[40px] text-white shadow-2xl shadow-emerald-500/20 relative overflow-hidden group">
-                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Travel Delta</p>
-                                <div class="flex items-baseline gap-1">
-                                    <span class="text-3xl font-black italic">${data.duration}</span>
-                                    <span class="text-sm font-black italic opacity-60">MINS</span>
-                                </div>
-                                <div class="mt-4 flex items-center gap-2">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
-                                    <span class="text-[8px] font-black uppercase opacity-60">Est. Arrival Hub</span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
+                if (durEl) durEl.innerText = (data.duration || '--') + 'm';
+                if (distEl) distEl.innerText = (data.total_km || '--') + ' KM';
+                if (fareEl) fareEl.innerText = '₹' + (data.fare || '--');
+                if (loadValEl) loadValEl.innerText = (data.load || '--') + '%';
+                if (loadLabelEl) loadLabelEl.innerText = data.load < 40 ? 'OPTIMAL' : 'MODERATE';
+                if (recEl) recEl.innerText = data.recommendation || 'No advisory for this route.';
                 
                 // Gemini Personalized Suggestion
                 if (window.GoogleGenAI && "{{ GEMINI_API_KEY }}") {
@@ -4050,31 +4006,52 @@ HTML_TEMPLATE = """
 
                     data.sequence.forEach((s, idx) => {
                         const sDiv = document.createElement('div');
-                        sDiv.className = "flex items-start gap-4 group relative pb-6";
+                        sDiv.className = "flex items-start gap-4 group relative pb-8";
                         
-                        const lineCol = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
-                        const dotSize = idx === 0 || idx === data.sequence.length - 1 ? 'w-5 h-5 ring-4' : 'w-3 h-3';
-                        const ringCol = s.line === 'Red' ? 'ring-red-100' : s.line === 'Blue' ? 'ring-blue-100' : 'ring-green-100';
+                        const isInterchange = !!interchangeData[s.name];
+                        const lineCol = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500';
+                        const dotSize = idx === 0 || idx === data.sequence.length - 1 ? 'w-6 h-6 ring-4' : (isInterchange ? 'w-5 h-5 ring-2' : 'w-3.5 h-3.5');
+                        const ringCol = s.line === 'Red' ? 'ring-red-100' : s.line === 'Blue' ? 'ring-blue-100' : 'ring-emerald-100';
+
+                        // Estimate fare for this stop
+                        const getStopFare = (d) => {
+                            if (d <= 2) return 12; if (d <= 4) return 18; if (d <= 6) return 30;
+                            if (d <= 9) return 40; if (d <= 12) return 50; if (d <= 15) return 55;
+                            if (d <= 18) return 60; if (d <= 21) return 66; if (d <= 24) return 70;
+                            return 75;
+                        };
+                        const stopFare = getStopFare(s.dist_km);
 
                         sDiv.innerHTML = `
                             <div class="relative flex flex-col items-center shrink-0 mt-1">
-                                <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-all group-hover:scale-125 flex items-center justify-center text-[6px] font-bold text-white">
-                                    ${idx === 0 ? 'S' : idx === data.sequence.length - 1 ? 'E' : ''}
+                                <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-all group-hover:scale-125 flex items-center justify-center text-[7px] font-black text-white shadow-sm">
+                                    ${idx === 0 ? 'START' : idx === data.sequence.length - 1 ? 'END' : (isInterchange ? '🔄' : '')}
                                 </div>
-                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-2 w-[2px] h-[calc(100%+1.5rem)] ${lineCol} opacity-20"></div>` : ''}
+                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-2 w-[2.5px] h-[calc(100%+2rem)] ${lineCol} opacity-20"></div>` : ''}
                             </div>
-                            <div class="flex-1 -mt-0.5">
-                                <div class="flex justify-between items-center">
-                                    <p class="text-sm font-black ${idx === 0 || idx === data.sequence.length - 1 ? 'text-slate-900' : 'text-slate-700'} group-hover:text-blue-600 transition-colors">${s.name}</p>
-                                    <span class="text-[10px] font-black text-blue-600 tabular-nums">${s.reaching_at}</span>
+                            <div class="flex-1 -mt-1">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col">
+                                        <p class="text-sm font-black ${idx === 0 || idx === data.sequence.length - 1 ? 'text-slate-900' : 'text-slate-700'} group-hover:text-blue-600 transition-colors flex items-center gap-2">
+                                            ${s.name}
+                                            ${isInterchange ? `<span class="px-1.5 py-0.5 bg-blue-600 text-white text-[6px] font-black rounded uppercase tracking-widest">Interchange</span>` : ''}
+                                        </p>
+                                        ${isInterchange ? `<p class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">Connects ${interchangeData[s.name].lines.join(' & ')} lines • Est. transfer: ${interchangeData[s.name].time}</p>` : ''}
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-[11px] font-black text-blue-600 tabular-nums">${s.reaching_at}</span>
+                                        <div class="flex flex-col items-end gap-0.5 mt-1">
+                                            <span class="text-[7px] font-bold text-slate-400 uppercase tracking-widest">₹${stopFare} Fare</span>
+                                            <span class="text-[7px] font-bold text-slate-300 uppercase tracking-widest">${s.dist_km} KM</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="flex flex-wrap items-center gap-2 mt-1.5">
+                                <div class="flex flex-wrap items-center gap-2 mt-2">
                                     <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${lineCol}">${s.line} LINE</span>
-                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i data-lucide="clock" size="8"></i> ${s.segment_min}m</span>` : ''}
-                                    ${s.dist_km > 0 ? `<span class="text-[8px] font-black text-slate-400 uppercase tracking-tighter">${s.dist_km} KM</span>` : ''}
+                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i data-lucide="clock" size="8"></i> ${idx === 0 ? 'Start' : `+${s.segment_min}m`}</span>` : ''}
                                     ${s.predicted_load ? `
                                         <div class="flex items-center gap-1 px-1.5 py-0.5 ${s.travel_difficulty === 'Smooth & Easy' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : s.travel_difficulty === 'Manageable Flux' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-orange-50 text-orange-600 border-orange-100'} rounded border group-hover:opacity-100 transition-opacity">
-                                            <span class="text-[7px] font-black uppercase tracking-tighter">${s.travel_difficulty}</span>
+                                            <span class="text-[7px] font-black uppercase tracking-tighter">${s.travel_difficulty} (${s.predicted_load}%)</span>
                                         </div>
                                     ` : ''}
                                 </div>
