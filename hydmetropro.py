@@ -556,32 +556,56 @@ def api_plan():
         h, m, s_ = map(int, gtfs_boarding_time.split(':'))
         last_known_time = now.replace(hour=h, minute=m, second=s_)
 
+    total_duration_calculated = 0
+    prev_dt = None
+    if gtfs_boarding_time:
+        try:
+            h, m, s_ = map(int, gtfs_boarding_time.split(':'))
+            prev_dt = now.replace(hour=h, minute=m, second=s_, microsecond=0)
+        except: pass
+
     for i, s in enumerate(sequence):
         s['reaching_at_raw'] = stop_arrival_times.get(s['id'])
         reach_hour = now.hour
+        current_dt = None
+        
         if s['reaching_at_raw']:
             try:
                 h, m, s_ = map(int, s['reaching_at_raw'].split(':'))
                 reach_hour = h
-                last_known_time = now.replace(hour=h, minute=m, second=s_)
-                s['reaching_at'] = last_known_time.strftime('%I:%M %p')
+                current_dt = now.replace(hour=h, minute=m, second=s_, microsecond=0)
+                s['reaching_at'] = current_dt.strftime('%I:%M %p')
             except: 
                 s['reaching_at'] = s['reaching_at_raw']
         else:
             # Fallback estimation for missing GTFS stops (common in interchanges)
-            if last_known_time:
+            if prev_dt:
                 # Add 2 minutes per stop if we don't have exact GTFS time
-                last_known_time += timedelta(minutes=2)
-                s['reaching_at'] = last_known_time.strftime('%I:%M %p')
-                reach_hour = last_known_time.hour
+                current_dt = prev_dt + timedelta(minutes=2)
+                s['reaching_at'] = current_dt.strftime('%I:%M %p')
+                reach_hour = current_dt.hour
             else:
                 s['reaching_at'] = "--:--"
+        
+        # Calculate segment time
+        if i == 0:
+            s['segment_min'] = 0
+        elif prev_dt and current_dt:
+            diff = (current_dt - prev_dt).total_seconds() / 60
+            s['segment_min'] = round(max(1, diff), 1)
+            total_duration_calculated += s['segment_min']
+        else:
+            s['segment_min'] = 2 # Default fallback
+            total_duration_calculated += 2
+
+        prev_dt = current_dt
         
         # Add AI Predicted Load for every stop
         is_weekend = now.weekday() >= 5
         weather = get_live_weather(lat=s['lat'], lng=s['lng'])
         load_label, _ = predict_load_ai(s['name'], reach_hour, is_weekend=is_weekend, weather=weather)
         s['predicted_load'] = load_label
+        s['predicted_hour'] = reach_hour
 
     # Calculate Total Distance for Precise Fare Prediction
     total_km = 0
@@ -613,17 +637,9 @@ def api_plan():
     calculated_fare = get_fare_from_matrix(total_km)
     digital_fare = round(calculated_fare * 0.9, 1) # 10% Smart Card Discount
     
-    # Calculate more accurate duration using GTFS if available
-    if gtfs_boarding_time and gtfs_arrival_time:
-        try:
-            h1, m1, s1 = map(int, gtfs_boarding_time.split(':'))
-            h2, m2, s2 = map(int, gtfs_arrival_time.split(':'))
-            t1 = timedelta(hours=h1, minutes=m1, seconds=s1)
-            t2 = timedelta(hours=h2, minutes=m2, seconds=s2)
-            duration = int((t2 - t1).total_seconds() // 60)
-        except:
-            duration = len(sequence) * 2
-    else:
+    # Use the more accurate calculated duration from segments
+    duration = int(total_duration_calculated)
+    if duration <= 0:
         duration = len(sequence) * 2
     
     # AI Recommendation logic
@@ -1265,15 +1281,35 @@ HTML_TEMPLATE = """
             100% { transform: translate3d(-100%, 0, 0); }
         }
 
-        /* Train Animation Smoothness */
+        /* Train Animation & Movement Styles */
         .train-shape-inner {
             transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
             will-change: transform;
             transform-origin: center center;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        }
+        
+        .train-icon {
+            z-index: 1000 !important;
+        }
+
+        .at-station svg {
+            animation: pulse-station 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-station {
+            0% { filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0)); transform: scale(1); }
+            50% { filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.4)); transform: scale(1.05); }
+            100% { filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0)); transform: scale(1); }
+        }
+
+        /* Speed stretch effect */
+        .moving-fast {
+            transform: scaleX(1.1);
         }
         
         .station-node-geo {
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .station-node-geo:hover {
             r: 10;
@@ -1795,6 +1831,76 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             </div>
+
+            <!-- Sentiment Engine (Moved here from main content) -->
+            <div id="sentiment-section" class="mt-20 pt-20 border-t border-slate-100">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
+                    <div class="flex items-center gap-6">
+                        <div class="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/30"><i data-lucide="message-square" size="32"></i></div>
+                        <div>
+                           <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Sentiment Engine</h2>
+                           <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Your input optimizes the neural network</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <div class="lg:col-span-12">
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            <div class="lg:col-span-5">
+                                <div class="glass-card border-none shadow-2xl bg-white p-10 relative overflow-hidden group">
+                                    <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100/50"></div>
+                                    
+                                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-10 relative z-10">Neural Input Form</h4>
+                                    
+                                    <div class="space-y-8 relative z-10">
+                                        <div class="space-y-3">
+                                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sentiment Rating</label>
+                                            <div class="flex justify-between gap-2">
+                                                <button onclick="setSentiment('sad')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-sad">🙁</button>
+                                                <button onclick="setSentiment('neutral')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-neutral">😐</button>
+                                                <button onclick="setSentiment('happy')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-happy">😊</button>
+                                                <button onclick="setSentiment('love')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-love">🚀</button>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-3">
+                                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Log Category</label>
+                                            <select id="feedback-cat" class="w-full p-5 bg-slate-50 border-2 border-transparent rounded-[24px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm appearance-none cursor-pointer">
+                                                <option>System Experience</option>
+                                                <option>Network Accuracy</option>
+                                                <option>Neural Timing</option>
+                                                <option>Feature Matrix</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="space-y-3">
+                                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Transmission Data</label>
+                                            <textarea id="feedback-msg" rows="4" class="w-full p-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm resize-none" placeholder="Describe your experience across the network..."></textarea>
+                                        </div>
+
+                                        <button onclick="submitFeedback()" class="w-full py-6 bg-blue-600 text-white font-black rounded-[30px] text-[11px] uppercase tracking-[0.3em] shadow-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3">
+                                            <i data-lucide="send" size="14"></i> Execute Transmission
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="lg:col-span-7">
+                                <div class="glass-card border-none bg-slate-50/50 p-10 min-h-[600px] rounded-[40px]">
+                                    <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-10">Recent Transmissions (Local Matrix)</h4>
+                                    <div id="feedback-history" class="space-y-6">
+                                        <!-- Injected by JS -->
+                                    </div>
+                                    <div id="feedback-empty" class="py-32 text-center flex flex-col items-center justify-center text-slate-300">
+                                        <div class="p-6 bg-white rounded-full mb-6 border border-slate-100"><i data-lucide="archive" size="32" class="opacity-10"></i></div>
+                                        <p class="text-[10px] font-black uppercase tracking-widest">Matrix log is stable and empty</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div id="tab-details" class="tab-content">
@@ -1933,69 +2039,6 @@ HTML_TEMPLATE = """
                         <p class="text-[10px] font-bold text-blue-800 uppercase tracking-[0.1em] leading-relaxed">
                             <strong class="text-blue-900">Smart Choice:</strong> A 10% discount is automatically applied to all fares when using a validated Hyderabad Metro Smart Card or Digital QR ticket.
                         </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-            <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-6 border-b pb-4 border-slate-200">
-                <div class="flex flex-col items-center lg:flex-row lg:items-center gap-6 text-center lg:text-left">
-                    <div class="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/30"><i data-lucide="message-square" size="32"></i></div>
-                    <div>
-                       <h2 class="text-4xl font-black tracking-tight mb-1 text-slate-900">Sentiment Engine</h2>
-                       <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Your input optimizes the neural network</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                <div class="lg:col-span-5">
-                    <div class="glass-card border-none shadow-2xl bg-white p-10 relative overflow-hidden group">
-                        <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-50 rounded-full blur-3xl transition-all group-hover:bg-blue-100/50"></div>
-                        
-                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 mb-10 relative z-10">Neural Input Form</h4>
-                        
-                        <div class="space-y-8 relative z-10">
-                            <div class="space-y-3">
-                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sentiment Rating</label>
-                                <div class="flex justify-between gap-2">
-                                    <button onclick="setSentiment('sad')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-sad">🙁</button>
-                                    <button onclick="setSentiment('neutral')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-neutral">😐</button>
-                                    <button onclick="setSentiment('happy')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-happy">😊</button>
-                                    <button onclick="setSentiment('love')" class="sentiment-btn p-4 bg-slate-50 rounded-2xl flex-1 text-2xl" id="sent-love">🚀</button>
-                                </div>
-                            </div>
-
-                            <div class="space-y-3">
-                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Log Category</label>
-                                <select id="feedback-cat" class="w-full p-5 bg-slate-50 border-2 border-transparent rounded-[24px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm appearance-none cursor-pointer">
-                                    <option>System Experience</option>
-                                    <option>Network Accuracy</option>
-                                    <option>Neural Timing</option>
-                                    <option>Feature Matrix</option>
-                                </select>
-                            </div>
-
-                            <div class="space-y-3">
-                                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Transmission Data</label>
-                                <textarea id="feedback-msg" rows="4" class="w-full p-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/20 focus:bg-white font-bold text-sm resize-none" placeholder="Describe your experience across the network..."></textarea>
-                            </div>
-
-                            <button onclick="submitFeedback()" class="w-full py-6 bg-blue-600 text-white font-black rounded-[30px] text-[11px] uppercase tracking-[0.3em] shadow-2xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3">
-                                <i data-lucide="send" size="14"></i> Execute Transmission
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="lg:col-span-7">
-                    <div class="glass-card border-none bg-slate-50/50 p-10 min-h-[600px] rounded-[40px]">
-                        <h4 class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-10">Recent Transmissions (Local Matrix)</h4>
-                        <div id="feedback-history" class="space-y-6">
-                            <!-- Injected by JS -->
-                        </div>
-                        <div id="feedback-empty" class="py-32 text-center flex flex-col items-center justify-center text-slate-300">
-                            <div class="p-6 bg-white rounded-full mb-6 border border-slate-100"><i data-lucide="archive" size="32" class="opacity-10"></i></div>
-                            <p class="text-[10px] font-black uppercase tracking-widest">Matrix log is stable and empty</p>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -2237,19 +2280,21 @@ HTML_TEMPLATE = """
                 
                 if (elapsed < t.dwell_time) {
                     progress = 0;
+                } else if (elapsed > t.duration) {
+                    progress = 1;
                 } else {
                     progress = (elapsed - t.dwell_time) / (t.duration - t.dwell_time);
                 }
                 
-                // Add easing for even more realism (smooth start/stop)
+                // Enhanced easing for fluid motion
                 const easedProgress = Math.max(0, Math.min(1, 
-                    progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2
+                    progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2
                 ));
 
                 const curLat = s1.lat + (s2.lat - s1.lat) * easedProgress;
                 const curLng = s1.lng + (s2.lng - s1.lng) * easedProgress;
                 
-                // Angle calculation with smoothing
+                // Smoothed rotation calculation
                 const targetAngle = Math.atan2(s2.lat - s1.lat, s2.lng - s1.lng) * 180 / Math.PI;
 
                 let marker = trainMarkers.get(tid);
@@ -2259,12 +2304,16 @@ HTML_TEMPLATE = """
                     if (iconEl) {
                         const inner = iconEl.querySelector('.train-shape-inner');
                         if (inner) {
-                            // Only rotate if moving
-                            if (easedProgress > 0 && easedProgress < 1) {
-                                inner.style.transform = `rotate(${-targetAngle}deg)`;
-                            }
+                            // Apply rotation based on path
+                            inner.style.transform = `rotate(${-targetAngle}deg)`;
                             
-                            // Visual feedback if at station
+                            // Visual speed feedback: Stretch train slightly when moving fast
+                            if (t.speed > 50 && easedProgress > 0.1 && easedProgress < 0.9) {
+                                const stretch = 1 + (t.speed / 500); 
+                                inner.style.transform += ` scaleX(${stretch})`;
+                            }
+
+                            // Dynamic shadow based on state
                             if (elapsed < t.dwell_time) {
                                 inner.classList.add('at-station');
                             } else {
@@ -3754,6 +3803,7 @@ HTML_TEMPLATE = """
                                 </div>
                                 <div class="flex items-center gap-2 mt-1">
                                     <span class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">${s.line} Line</span>
+                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i data-lucide="clock" size="8"></i> ${s.segment_min}m</span>` : ''}
                                     ${s.segment_km > 0 ? `<span class="text-[8px] font-black text-slate-500 uppercase tracking-tighter">+${s.segment_km} KM</span>` : ''}
                                     ${s.dist_km > 0 ? `<span class="text-[8px] font-black text-blue-600 uppercase tracking-tighter">Total: ${s.dist_km} KM</span>` : ''}
                                     ${s.predicted_load ? `<span class="text-[7px] font-black px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 uppercase tracking-tighter">${s.predicted_load} Crowd</span>` : ''}
