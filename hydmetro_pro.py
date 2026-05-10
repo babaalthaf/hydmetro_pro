@@ -560,7 +560,7 @@ def api_plan():
         # Find the next available trip at start station from indexed data
         possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_id, []) if t['arrival_time'] > now_str]
         
-        for pt in possible_start_trips[:5]: # Check first 5 upcoming
+        for pt in possible_start_trips[:15]: # Check first 15 upcoming
             trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
             # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -649,8 +649,19 @@ def api_plan():
         # Add AI Predicted Load for every stop
         is_weekend = now.weekday() >= 5
         weather = get_live_weather(lat=s['lat'], lng=s['lng'])
-        load_label, _ = predict_load_ai(s['name'], reach_hour, is_weekend=is_weekend, weather=weather)
+        load_label, load_pct_val = predict_load_ai(s['name'], reach_hour, is_weekend=is_weekend, weather=weather)
         s['predicted_load'] = load_label
+        
+        # Difficulty descriptive label
+        if load_pct_val < 30:
+            s['travel_difficulty'] = "Smooth & Easy"
+        elif load_pct_val < 60:
+            s['travel_difficulty'] = "Manageable Flux"
+        elif load_pct_val < 85:
+            s['travel_difficulty'] = "Active Rush"
+        else:
+            s['travel_difficulty'] = "Intense Density"
+            
         s['predicted_hour'] = reach_hour
 
     # Calculate Total Distance for Precise Fare Prediction
@@ -906,7 +917,7 @@ def api_plan():
 
                 upcoming_hour.append(row_copy)
             except: continue
-            if len(upcoming_hour) >= 8: break
+            if len(upcoming_hour) >= 15: break
 
     # Convert boarding & arrival to 12-hour format
     boarding_at_source = "--:--"
@@ -3667,7 +3678,7 @@ HTML_TEMPLATE = """
                 list.innerHTML = '';
                 
                 if (data.upcoming && data.upcoming.length > 0) {
-                    data.upcoming.slice(0, 4).forEach(t => {
+                    data.upcoming.slice(0, 10).forEach(t => {
                         const card = document.createElement('div');
                         card.className = "bg-slate-50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center group hover:bg-white hover:border-blue-200 transition-all";
                         card.innerHTML = `
@@ -3843,10 +3854,14 @@ HTML_TEMPLATE = """
                                 </div>
                                 <div class="flex items-center gap-2 mt-1">
                                     <span class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">${s.line} Line</span>
-                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i data-lucide="clock" size="8"></i> ${s.segment_min}m</span>` : ''}
+                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1" title="Est. 2 mins per station transition"><i data-lucide="clock" size="8"></i> ${s.segment_min}m est</span>` : ''}
                                     ${s.segment_km > 0 ? `<span class="text-[8px] font-black text-slate-500 uppercase tracking-tighter">+${s.segment_km} KM</span>` : ''}
                                     ${s.dist_km > 0 ? `<span class="text-[8px] font-black text-blue-600 uppercase tracking-tighter">Total: ${s.dist_km} KM</span>` : ''}
-                                    ${s.predicted_load ? `<span class="text-[7px] font-black px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 uppercase tracking-tighter">${s.predicted_load} Crowd</span>` : ''}
+                                    ${s.predicted_load ? `
+                                        <div class="flex items-center gap-1.5 px-2 py-1 ${s.travel_difficulty === 'Smooth & Easy' ? 'bg-emerald-50 text-emerald-600' : s.travel_difficulty === 'Manageable Flux' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'} rounded-lg border border-current opacity-70">
+                                            <span class="text-[7px] font-black uppercase tracking-tighter">Ridership: ${s.travel_difficulty} [${s.predicted_load}]</span>
+                                        </div>
+                                    ` : ''}
                                 </div>
                             </div>
                         `;
