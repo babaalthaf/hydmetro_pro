@@ -366,6 +366,7 @@ def api_nearest():
     
     if 'station_id' in data:
         nearest = next(s for s in STATIONS_LIST if s['id'] == data['station_id'])
+        lat, lng = nearest['lat'], nearest['lng']
     else:
         lat, lng = data['lat'], data['lng']
         nearest = min(STATIONS_LIST, key=lambda s: haversine(lat, lng, s['lat'], s['lng']))
@@ -1263,6 +1264,21 @@ HTML_TEMPLATE = """
             0% { transform: translate3d(0, 0, 0); }
             100% { transform: translate3d(-100%, 0, 0); }
         }
+
+        /* Train Animation Smoothness */
+        .train-shape-inner {
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            will-change: transform;
+            transform-origin: center center;
+        }
+        
+        .station-node-geo {
+            transition: all 0.3s ease;
+        }
+        .station-node-geo:hover {
+            r: 10;
+            stroke-width: 5;
+        }
     </style>
 </head>
 <body>
@@ -1579,7 +1595,7 @@ HTML_TEMPLATE = """
                             <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">From Station</label>
                             <div class="relative">
                                 <div class="absolute left-6 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-600 ring-8 ring-blue-50"></div>
-                                <select id="start-st" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
+                                <select id="start-st" onchange="updateLiveStationFeed(this.value)" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
                                 <div class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"><i data-lucide="chevron-down" size="18"></i></div>
                             </div>
                         </div>
@@ -1600,41 +1616,18 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Optimization Matrix -->
-                    <div class="mb-10 relative z-10">
-                        <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1 mb-4">Route Optimization Logic</label>
-                        <div class="grid grid-cols-3 gap-4">
-                            <button onclick="setPlannerOpt('speed')" id="opt-speed" class="planner-opt-btn active p-5 bg-slate-50 text-slate-400 rounded-3xl border-2 border-transparent flex flex-col items-center gap-2 transition-all hover:bg-slate-100">
-                                <i data-lucide="zap" size="20"></i>
-                                <span class="text-[10px] font-black uppercase tracking-widest">Fastest</span>
-                            </button>
-                            <button onclick="setPlannerOpt('comfort')" id="opt-comfort" class="planner-opt-btn p-5 bg-slate-50 text-slate-400 rounded-3xl border-2 border-transparent flex flex-col items-center gap-2 transition-all hover:bg-slate-100">
-                                <i data-lucide="armchair" size="20"></i>
-                                <span class="text-[10px] font-black uppercase tracking-widest">Comfort</span>
-                            </button>
-                            <button onclick="setPlannerOpt('direct')" id="opt-direct" class="planner-opt-btn p-5 bg-slate-50 text-slate-400 rounded-3xl border-2 border-transparent flex flex-col items-center gap-2 transition-all hover:bg-slate-100">
-                                <i data-lucide="git-branch" size="20"></i>
-                                <span class="text-[10px] font-black uppercase tracking-widest">Direct</span>
+                    <!-- Live Station Preview (Next 1 Hour) -->
+                    <div id="quick-train-preview" class="hidden mb-10 animate-in fade-in slide-in-from-top-4 duration-500">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-[9px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Next 1 Hour Trains from selected station
+                            </h4>
+                            <button onclick="document.getElementById('quick-train-preview').classList.add('hidden')" class="text-slate-300 hover:text-slate-500 transition-colors">
+                                <i data-lucide="x" size="12"></i>
                             </button>
                         </div>
-                    </div>
-
-                    <!-- Departure Window -->
-                    <div class="bg-slate-50 p-8 rounded-[32px] border border-slate-100 mb-10 relative z-10">
-                        <div class="flex items-center justify-between mb-6">
-                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Departure Window</label>
-                            <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100">
-                                <i data-lucide="clock" size="14" class="text-blue-600"></i>
-                                <span id="sim-time-display" class="text-xs font-black text-slate-900">Live Time</span>
-                            </div>
-                        </div>
-                        <input type="range" min="-1" max="23" value="-1" id="time-slider" oninput="updateSimTime(this.value)" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
-                        <div class="flex justify-between mt-4 text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">
-                            <span>Now</span>
-                            <span>Morning</span>
-                            <span>Noon</span>
-                            <span>Evening</span>
-                            <span>Night</span>
+                        <div id="quick-train-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <!-- Injected by JS -->
                         </div>
                     </div>
 
@@ -1660,76 +1653,47 @@ HTML_TEMPLATE = """
                     </div>
 
                     <!-- Metrics Grid -->
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
-                            <div class="flex items-center gap-2 text-blue-600">
-                                <i data-lucide="users" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Crowd Density</span>
-                            </div>
-                            <div class="flex flex-col">
-                                <span id="route-load-val" class="text-lg font-black text-slate-900">--%</span>
-                                <div class="w-full h-1 bg-slate-100 rounded-full mt-1 overflow-hidden">
-                                    <div id="route-load-bar" class="h-full bg-blue-600 w-0 transition-all duration-1000"></div>
-                                </div>
-                            </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <div class="bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm flex flex-col gap-1">
+                            <span class="text-[9px] font-black uppercase tracking-widest text-slate-400">Time</span>
+                            <span id="route-dur" class="text-xl font-black text-slate-900">--</span>
                         </div>
-
-                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
-                            <div class="flex items-center gap-2 text-indigo-600">
-                                <i data-lucide="brain" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Neural Path Logic</span>
-                            </div>
-                            <p id="route-rec" class="text-[11px] font-bold text-slate-600 leading-tight line-clamp-2">--</p>
+                        <div class="bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm flex flex-col gap-1">
+                            <span class="text-[9px] font-black uppercase tracking-widest text-slate-400">Distance</span>
+                            <span id="route-dist-km" class="text-xl font-black text-slate-900">-- KM</span>
                         </div>
-
-                        <div class="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 shadow-sm flex flex-col gap-2">
-                            <div class="flex items-center gap-2 text-emerald-600">
-                                <i data-lucide="leaf" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Eco Impact</span>
-                            </div>
-                            <div class="flex justify-between items-end">
-                                <span id="route-eco-val" class="text-lg font-black text-emerald-700">--</span>
-                                <span class="text-[8px] font-black text-emerald-600/60 uppercase pb-1">Saved</span>
-                            </div>
-                        </div>
-
-                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
-                            <div class="flex items-center gap-2 text-slate-400">
-                                <i data-lucide="clock" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Transit Time</span>
-                            </div>
-                            <span id="route-dur" class="text-lg font-black text-slate-900">--</span>
-                        </div>
-
-                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
-                            <div class="flex items-center gap-2 text-slate-400">
-                                <i data-lucide="map" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Distance (KM)</span>
-                            </div>
-                            <span id="route-dist-km" class="text-lg font-black text-slate-900">-- KM</span>
-                        </div>
-
-                        <div class="bg-blue-600 p-5 rounded-3xl shadow-lg flex flex-col gap-2 text-white">
-                            <div class="flex items-center gap-2 opacity-80">
-                                <i data-lucide="credit-card" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Ticket Fare</span>
-                            </div>
+                        <div class="bg-blue-600 p-5 rounded-[28px] shadow-lg flex flex-col gap-1 text-white">
+                            <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Fare</span>
                             <span id="route-fare" class="text-xl font-black">₹--</span>
-                            <span id="route-digital-fare" class="text-[9px] font-bold opacity-70 bg-black/20 px-2 py-1 rounded-md">Smart: ₹--</span>
                         </div>
+                        <div class="bg-slate-900 p-5 rounded-[28px] shadow-lg flex flex-col gap-1 text-white">
+                            <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Crowd</span>
+                            <span id="route-load-val" class="text-xl font-black">--%</span>
+                        </div>
+                    </div>
+
+                    <!-- Station Insight -->
+                    <div id="route-rec-container" class="bg-indigo-50 p-6 rounded-[32px] border border-indigo-100 mb-6 flex items-start gap-4">
+                        <div class="w-10 h-10 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-lg">
+                            <i data-lucide="info" size="20"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-indigo-900 uppercase tracking-widest mb-1">Transit Advisory</h4>
+                            <p id="route-rec" class="text-sm font-bold text-indigo-800 leading-tight">--</p>
+                        </div>
+                    </div>
+
+                    <div id="personalized-recommendations" class="hidden space-y-3 mt-4">
+                        <!-- Dynamic Advices -->
                     </div>
 
                     <!-- Station Stop List -->
-                    <div id="personalized-recommendations" class="hidden space-y-3 mt-4">
-                        <!-- Dynamic AI Advices -->
-                    </div>
-
                     <div class="bg-white rounded-[32px] border border-slate-100 shadow-xl overflow-hidden mt-6">
                         <div class="p-6 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                            <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-400">Stops on your way</h4>
-                            <div class="flex items-center gap-2">
-                                <i data-lucide="navigation" size="12" class="text-slate-400"></i>
-                                <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Neural Stream</span>
+                            <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-400">Intermediate Stations</h4>
+                            <div class="flex items-center gap-2 text-slate-300">
+                                <i data-lucide="route" size="12"></i>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Network Flow</span>
                             </div>
                         </div>
                         <div id="route-stops-list" class="p-6 space-y-4">
@@ -1738,10 +1702,12 @@ HTML_TEMPLATE = """
                     </div>
 
                     <!-- Upcoming Schedules -->
-                    <div class="space-y-4 mt-8">
+                    <div class="space-y-4 mt-8 bg-blue-50/30 p-8 rounded-[40px] border border-blue-50">
                         <div class="flex items-center justify-between px-2">
-                            <h5 class="text-[11px] font-black uppercase text-slate-400 tracking-widest">Upcoming Train Vectors</h5>
-                            <span class="text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-100/50 px-2 py-0.5 rounded-md">Live Forecast</span>
+                            <h5 class="text-[11px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                                <i data-lucide="clock" size="14" class="text-blue-600"></i> Next 1 Hour Departures
+                            </h5>
+                            <span class="text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-0.5 rounded-md">Live Forecast</span>
                         </div>
                         <div id="schedule-list" class="space-y-3">
                             <!-- Upcoming trains here -->
@@ -2319,6 +2285,7 @@ HTML_TEMPLATE = """
             start.value = end.value;
             end.value = tmp;
             lucide.createIcons();
+            updateLiveStationFeed(start.value);
         }
 
         function setPlannerOpt(opt) {
@@ -3586,6 +3553,54 @@ HTML_TEMPLATE = """
             });
         }
 
+        async function updateLiveStationFeed(stationId) {
+            const preview = document.getElementById('quick-train-preview');
+            const list = document.getElementById('quick-train-list');
+            if(!stationId) {
+                preview.classList.add('hidden');
+                return;
+            }
+
+            preview.classList.remove('hidden');
+            list.innerHTML = `<div class="col-span-full py-6 flex flex-col items-center gap-2"><div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p class="text-[8px] font-black uppercase text-slate-400">Syncing Forecast...</p></div>`;
+
+            try {
+                const res = await fetch('/api/nearest', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ station_id: stationId }) 
+                });
+                const data = await res.json();
+                list.innerHTML = '';
+                
+                if (data.upcoming && data.upcoming.length > 0) {
+                    data.upcoming.slice(0, 4).forEach(t => {
+                        const card = document.createElement('div');
+                        card.className = "bg-slate-50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center group hover:bg-white hover:border-blue-200 transition-all";
+                        card.innerHTML = `
+                            <div class="flex items-center gap-3">
+                                <div class="w-1 h-8 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
+                                <div>
+                                    <p class="text-[10px] font-black text-slate-800">${t.final_stop}</p>
+                                    <p class="text-[7px] font-bold text-slate-400 uppercase">${t.direction}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[11px] font-black text-blue-600">${t.arrival_time}</p>
+                                <p class="text-[7px] font-black text-slate-400 uppercase">in ${t.eta}</p>
+                            </div>
+                        `;
+                        list.appendChild(card);
+                    });
+                } else {
+                    list.innerHTML = `<div class="col-span-full py-6 text-center"><p class="text-[8px] font-black uppercase text-slate-300">No scheduled vectors in next 60m</p></div>`;
+                }
+                lucide.createIcons();
+            } catch (e) {
+                list.innerHTML = `<p class="col-span-full text-[8px] font-black text-red-400 uppercase text-center">Sync Matrix Offline</p>`;
+            }
+        }
+
         async function planJourney() {
             const btn = document.getElementById('plan-btn');
             const btnText = document.getElementById('btn-text');
@@ -3610,9 +3625,7 @@ HTML_TEMPLATE = """
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify({
                         from: f, 
-                        to: t,
-                        optimization: plannerOpt,
-                        sim_hour: plannerSimTime // Ensure this is sent
+                        to: t
                     }) 
                 });
                 const data = await res.json();
@@ -3648,10 +3661,9 @@ HTML_TEMPLATE = """
                 const emptyState = document.getElementById('route-empty');
                 if (emptyState) emptyState.classList.add('hidden');
                 
-                // Updates for new mobile UI metrics
+                // Updates for simplified UI metrics
                 document.getElementById('route-dur').innerText = data.duration + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
-                document.getElementById('route-digital-fare').innerText = 'Smart Card: ₹' + (data.digital_fare || (data.fare * 0.9).toFixed(1));
                 document.getElementById('route-dist-km').innerText = data.total_km + ' KM';
                 document.getElementById('route-rec').innerText = data.recommendation;
                 
@@ -3682,18 +3694,9 @@ HTML_TEMPLATE = """
                     }
                 }
                 
-                // Eco Metrics
-                document.getElementById('route-eco-val').innerText = data.eco.co2 + 'kg';
-
                 // Crowd Data
                 const loadVal = Math.round(data.load || 35);
                 document.getElementById('route-load-val').innerText = loadVal + '%';
-                const loadBar = document.getElementById('route-load-bar');
-                if (loadBar) {
-                    loadBar.style.width = loadVal + '%';
-                    loadBar.className = 'h-full transition-all duration-1000 ' + 
-                                      (loadVal > 70 ? 'bg-red-500' : (loadVal > 40 ? 'bg-amber-500' : 'bg-emerald-500'));
-                }
                 
                 // Personalized Recommendations
                 const persRecCont = document.getElementById('personalized-recommendations');
@@ -3841,46 +3844,37 @@ HTML_TEMPLATE = """
                         let marker = trainMarkers.get(t.trip_id);
                         
                         if(!marker) {
-                            // Line-specific train designs
+                            const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#10b981';
+                            const accent = t.line === 'Red' ? '#fee2e2' : t.line === 'Blue' ? '#dbeafe' : '#dcfce7';
+                            
+                            // Line-specific train designs with direction indicators
                             let svgPath = '';
                             let extraElements = '';
                             
                             if (t.line === 'Red') {
-                                // Red Line: Sleek, high-speed look
                                 svgPath = `<rect x="10" y="8" width="30" height="14" rx="2" fill="${color}" stroke="white" stroke-width="1.5"/>
-                                           <path d="M 40,8 L 48,15 L 40,22 Z" fill="${color}" stroke="white" stroke-width="1.5"/>`;
-                                extraElements = `<text x="18" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white" fill-opacity="0.9">R</text>`;
+                                           <path d="M 40,8 L 52,15 L 40,22 Z" fill="#ffffff" stroke="${color}" stroke-width="1"/>`; // White arrow indicator
+                                extraElements = `<text x="18" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white">R</text>`;
                             } else if (t.line === 'Blue') {
-                                // Blue Line: Modern, aerodynamic
-                                svgPath = `<path d="M 10,10 Q 15,8 35,8 L 45,15 L 35,22 Q 15,22 10,20 Z" fill="${color}" stroke="white" stroke-width="1.5"/>`;
-                                extraElements = `<text x="18" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white" fill-opacity="0.9">B</text>`;
+                                svgPath = `<path d="M 10,10 L 35,10 L 48,15 L 35,20 L 10,20 Z" fill="${color}" stroke="white" stroke-width="1.5"/>
+                                           <path d="M 40,12 L 46,15 L 40,18 Z" fill="#ffffff"/>`; // Inner indicator
+                                extraElements = `<text x="18" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white">B</text>`;
                             } else {
-                                // Green Line: Robust, eco-aesthetic
                                 svgPath = `<rect x="8" y="8" width="35" height="14" rx="4" fill="${color}" stroke="white" stroke-width="1.5"/>
-                                           <path d="M 43,10 L 48,15 L 43,20 Z" fill="${color}" stroke="white" stroke-width="1.5"/>`;
-                                extraElements = `<circle cx="15" cy="15" r="4" fill="white" fill-opacity="0.2"/>
-                                                 <text x="22" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white" fill-opacity="0.9">G</text>`;
+                                           <path d="M 43,10 L 52,15 L 43,20 Z" fill="#ffffff" stroke="${color}" stroke-width="1"/>`; // White arrow indicator
+                                extraElements = `<text x="22" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white">G</text>`;
                             }
 
                             const trainIcon = L.divIcon({
                                 className: 'train-icon',
                                 html: `<div class="train-shape-inner">
                                     <svg width="60" height="40" viewBox="0 0 60 40">
-                                        <filter id="glow-${t.trip_id}"><feGaussianBlur stdDeviation="2" result="blur"/><feComposite in="SourceGraphic" in2="blur" operator="over"/></filter>
-                                        <!-- Shadow -->
-                                        <rect x="12" y="12" width="36" height="16" rx="4" fill="black" fill-opacity="0.1"/>
-                                        <!-- Main Train Body -->
+                                        <rect x="12" y="14" width="36" height="12" rx="4" fill="black" fill-opacity="0.1"/>
                                         ${svgPath}
-                                        <!-- Line Marker -->
                                         ${extraElements}
-                                        <!-- Windows -->
-                                        <rect x="14" y="11" width="4" height="4" fill="${accent}" fill-opacity="0.8" rx="1"/>
-                                        <rect x="22" y="11" width="4" height="4" fill="${accent}" fill-opacity="0.8" rx="1"/>
-                                        <rect x="30" y="11" width="4" height="4" fill="${accent}" fill-opacity="0.8" rx="1"/>
-                                        <!-- Front Light -->
-                                        <circle cx="44" cy="15" r="2" fill="#fff" filter="url(#glow-${t.trip_id})">
-                                            <animate attributeName="opacity" values="0.4;1;0.4" dur="1s" repeatCount="indefinite" />
-                                        </circle>
+                                        <rect x="14" y="11" width="3" height="3" fill="${accent}" fill-opacity="0.8" rx="0.5"/>
+                                        <rect x="20" y="11" width="3" height="3" fill="${accent}" fill-opacity="0.8" rx="0.5"/>
+                                        <rect x="26" y="11" width="3" height="3" fill="${accent}" fill-opacity="0.8" rx="0.5"/>
                                     </svg>
                                 </div>`,
                                 iconSize: [60, 40],
