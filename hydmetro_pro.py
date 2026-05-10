@@ -3776,6 +3776,37 @@ HTML_TEMPLATE = """
                 list.innerHTML = '';
                 
                 if (data.upcoming && data.upcoming.length > 0) {
+                    // Neural Flux Card highlighting Ridership
+                    const fluxCard = document.createElement('div');
+                    fluxCard.className = "col-span-full mb-6 bg-slate-900 p-8 rounded-[40px] text-white flex justify-between items-center relative overflow-hidden group shadow-2xl shadow-slate-200";
+                    fluxCard.innerHTML = `
+                        <div class="relative z-10">
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Selected Hub Intelligence</p>
+                            <div class="flex items-center gap-3 mb-4">
+                                <span class="text-3xl font-black italic tracking-tighter">${data.load || 30}% Intensity</span>
+                                <span class="px-3 py-1 bg-white/10 rounded-full text-[9px] font-black uppercase border border-white/20">${data.load < 40 ? 'Optimal Flux' : 'Active Flow'}</span>
+                            </div>
+                            <div class="flex items-center gap-6">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-1.5 h-1.5 rounded-full ${data.load < 40 ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse"></div>
+                                    <span class="text-[9px] font-black uppercase tracking-widest text-slate-400">Live Ridership</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="zap" size="12" class="text-blue-400"></i>
+                                    <span class="text-[9px] font-black uppercase tracking-widest text-slate-400">Real-time Vector Sync</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="absolute -right-12 -top-12 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
+                        <div class="text-right relative z-10">
+                            <div class="w-16 h-16 bg-white/5 rounded-[28px] border border-white/10 flex items-center justify-center mb-2 ml-auto shadow-inner">
+                                <i data-lucide="radio" size="32" class="text-blue-500 animate-pulse"></i>
+                            </div>
+                            <p class="text-[9px] font-black uppercase tracking-widest text-slate-500">Telemetry Feed</p>
+                        </div>
+                    `;
+                    list.appendChild(fluxCard);
+
                     // Update header if we have a direction
                     const previewHeader = preview.querySelector('h4');
                     if (previewHeader) {
@@ -3862,10 +3893,63 @@ HTML_TEMPLATE = """
                 if (emptyState) emptyState.classList.add('hidden');
                 
                 // Updates for simplified UI metrics
-                document.getElementById('route-dur').innerText = data.duration + 'm';
-                document.getElementById('route-fare').innerText = '₹' + data.fare;
-                document.getElementById('route-dist-km').innerText = data.total_km + ' KM';
-                document.getElementById('route-rec').innerText = data.recommendation;
+                const routeSummary = document.getElementById('route-summary');
+                if (routeSummary) {
+                    routeSummary.innerHTML = `
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                            <div class="bg-blue-600 p-6 rounded-[40px] text-white shadow-2xl shadow-blue-500/20 relative overflow-hidden group">
+                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Transit Fare</p>
+                                <div class="flex items-baseline gap-1">
+                                    <span class="text-3xl font-black italic">₹${data.fare}</span>
+                                </div>
+                                <div class="mt-4 flex items-center gap-2">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse"></span>
+                                    <span class="text-[8px] font-black uppercase opacity-60">Verified Fare Matrix</span>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-indigo-600 p-6 rounded-[40px] text-white shadow-2xl shadow-indigo-500/20 relative overflow-hidden group">
+                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Vector Range</p>
+                                <div class="flex items-baseline gap-1">
+                                    <span class="text-3xl font-black italic">${data.total_km}</span>
+                                    <span class="text-sm font-black italic opacity-60">KM</span>
+                                </div>
+                                <div class="mt-4 flex items-center gap-2">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-indigo-300 animate-pulse"></span>
+                                    <span class="text-[8px] font-black uppercase opacity-60">Linear Geodesic</span>
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-900 p-6 rounded-[40px] text-white shadow-2xl shadow-slate-500/20 relative overflow-hidden group">
+                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Cluster Density</p>
+                                <div class="flex items-baseline gap-2">
+                                    <span class="text-3xl font-black italic">${data.load}%</span>
+                                    <span class="px-2 py-0.5 bg-white/10 rounded text-[8px] font-black uppercase">${data.load < 40 ? 'OPTIMAL' : 'MODERATE'}</span>
+                                </div>
+                                <div class="mt-4 flex items-center gap-2">
+                                    <span class="w-1.5 h-1.5 rounded-full ${data.load < 40 ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse"></span>
+                                    <span class="text-[8px] font-black uppercase opacity-60">Live Ridership Flux</span>
+                                </div>
+                            </div>
+
+                            <div class="bg-emerald-600 p-6 rounded-[40px] text-white shadow-2xl shadow-emerald-500/20 relative overflow-hidden group">
+                                <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">Travel Delta</p>
+                                <div class="flex items-baseline gap-1">
+                                    <span class="text-3xl font-black italic">${data.duration}</span>
+                                    <span class="text-sm font-black italic opacity-60">MINS</span>
+                                </div>
+                                <div class="mt-4 flex items-center gap-2">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
+                                    <span class="text-[8px] font-black uppercase opacity-60">Est. Arrival Hub</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
                 
                 // Gemini Personalized Suggestion
                 if (window.GoogleGenAI && "{{ GEMINI_API_KEY }}") {
