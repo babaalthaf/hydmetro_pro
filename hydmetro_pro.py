@@ -24,19 +24,27 @@ def get_app_now():
     """Context-aware time for app logic."""
     sim_hour = -1
     sim_min = 0
+    
+    # Check if a specific time was sent in the request body (for planning)
     if request:
-        if 'sim_hour' in request.args:
-            try:
+        try:
+            if request.is_json:
+                data = request.get_json(silent=True)
+                if data and 'planned_time' in data and data['planned_time']:
+                    # Format: "HH:MM"
+                    h, m = map(int, data['planned_time'].split(':'))
+                    now = get_ist_now()
+                    return now.replace(hour=h, minute=m, second=0, microsecond=0)
+            
+            if 'sim_hour' in request.args:
                 sim_hour = int(request.args.get('sim_hour'))
                 sim_min = int(request.args.get('sim_min', 0))
-            except: pass
-        elif request.is_json:
-            try:
+            elif request.is_json:
                 data = request.get_json(silent=True)
                 if data and 'sim_hour' in data:
                     sim_hour = int(data.get('sim_hour', -1))
                     sim_min = int(data.get('sim_min', 0))
-            except: pass
+        except: pass
     
     if sim_hour != -1:
         try:
@@ -115,7 +123,6 @@ def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
             with open('final_metro_dataset.csv', 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # Note: final_metro_dataset.csv uses 'stop_name' and 'hour'
                     if row['stop_name'] == station_name and int(row['hour']) == hour:
                         load_val_num = int(row['ridership'])
                         found_in_csv = True
@@ -123,31 +130,30 @@ def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
     except: pass
 
     if found_in_csv:
-        if load_val_num > 1500: return "High", "🔴 High Crowd (Data Driven)"
-        if load_val_num > 800: return "M-High", "🟡 Moderate Rush (Data Driven)"
-        if load_val_num > 300: return "Medium", "🟢 Manageable Crowd (Data Driven)"
-        return "Low", "🟢 Calm Condition (Data Driven)"
+        # Normalize CSV ridership to a 0-100 scale for UI usage
+        score = min(100, (load_val_num / 250)) 
+        if load_val_num > 1500: return "High", score
+        if load_val_num > 800: return "M-High", score
+        if load_val_num > 300: return "Medium", score
+        return "Low", score
 
     # Heuristic Fallback
     is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
     is_it_hub = 1 if any(h in station_name for h in ['HITEC City', 'Madhapur', 'Raidurg', 'Ameerpet']) else 0
     
-    score = 50 + (is_peak * 100) + (is_it_hub * 80)
-    if is_weekend: score -= 30
+    score = 40 + (is_peak * 40) + (is_it_hub * 20)
+    if is_weekend: score -= 15
     
-    weather_str = ""
     if weather:
-        if "Rain" in weather.get('condition', ''):
-            score += 25
-            weather_str = "Raining"
-        if weather.get('temp', 30) > 35:
-            score += 20
-            weather_str = "Heat"
+        if "Rain" in weather.get('condition', ''): score += 15
+        if weather.get('temp', 30) > 35: score += 10
     
-    if score > 180: return "High", f"🔴 High Crowd ({weather_str})" if weather_str else "🔴 High Crowd"
-    if score > 130: return "M-High", f"🟡 Moderate Rush ({weather_str})" if weather_str else "🟡 Moderate Rush"
-    if score > 80: return "Medium", "🟢 Manageable Crowd"
-    return "Low", "🟢 Calm Condition"
+    score = min(100, max(5, score + random.uniform(-5, 5)))
+    
+    if score > 80: return "High", score
+    if score > 60: return "M-High", score
+    if score > 35: return "Medium", score
+    return "Low", score
 
 # ==========================================
 # 2. FULL DATASET (59 STATIONS - UPDATED)
@@ -430,17 +436,25 @@ def api_nearest():
     
     name = nearest.get('name_alias', nearest['name'])
     matching_ids = [s['id'] for s in STATIONS_LIST if s.get('name_alias', s['name']) == name]
+    to_id = data.get('to_id')
     
-    trips = ensure_gtfs()
+    trips_data = ensure_gtfs()
     now = get_app_now()
     now_str = now.strftime('%H:%M:%S')
-    one_hour_later = now + timedelta(hours=1)
+    one_hour_later = now + timedelta(hours=2) # Check 2 hours for better coverage
     oh_str = one_hour_later.strftime('%H:%M:%S')
     
     upcoming = []
     for mid in matching_ids:
         st_trips = _GTFS_STATION_INDEX.get(mid, [])
         for row in st_trips:
+            # Direction Filter: If destination is selected, check if trip reaches it AFTER this station
+            if to_id:
+                trip_stops = _GTFS_INDEX.get(row['trip_id'], [])
+                dest_stop = next((s for s in trip_stops if s['station_id'] == to_id), None)
+                if not dest_stop or dest_stop['arrival_time'] <= row['arrival_time']:
+                    continue
+
             # Handle midnight wrap-around for time window
             if now_str < row['arrival_time'] < oh_str or (oh_str < now_str and (row['arrival_time'] > now_str or row['arrival_time'] < oh_str)):
                 # Calculate ETA countdown
@@ -560,7 +574,7 @@ def api_plan():
         # Find the next available trip at start station from indexed data
         possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_id, []) if t['arrival_time'] > now_str]
         
-        for pt in possible_start_trips[:15]: # Check first 15 upcoming
+        for pt in possible_start_trips[:10]: # Check first 10 upcoming as requested
             trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
             # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
@@ -1674,27 +1688,34 @@ HTML_TEMPLATE = """
                     
                     <!-- Input Matrix -->
                     <div class="grid grid-cols-1 md:grid-cols-11 items-center gap-2 mb-10">
-                        <div class="md:col-span-5 space-y-3">
+                        <div class="md:col-span-4 space-y-3">
                             <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">From Station</label>
                             <div class="relative">
                                 <div class="absolute left-6 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-600 ring-8 ring-blue-50"></div>
-                                <select id="start-st" onchange="updateLiveStationFeed(this.value)" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
+                                <select id="start-st" onchange="autoPlan()" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-blue-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
                                 <div class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"><i data-lucide="chevron-down" size="18"></i></div>
                             </div>
                         </div>
 
                         <div class="md:col-span-1 flex justify-center py-4 md:py-0 text-center relative">
-                            <button onclick="swapStations()" class="p-4 bg-blue-600 text-white rounded-full shadow-2xl hover:rotate-180 transition-transform duration-700 cursor-pointer border-4 border-white z-20">
+                            <button onclick="swapStations(); autoPlan();" class="p-4 bg-blue-600 text-white rounded-full shadow-2xl hover:rotate-180 transition-transform duration-700 cursor-pointer border-4 border-white z-20">
                                 <i data-lucide="repeat-2" size="20"></i>
                             </button>
                         </div>
 
-                        <div class="md:col-span-5 space-y-3">
+                        <div class="md:col-span-4 space-y-3">
                             <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">To Station</label>
                             <div class="relative">
                                 <div class="absolute left-6 top-1/2 -translate-y-1/2 text-emerald-500"><i data-lucide="map-pin" size="18"></i></div>
-                                <select id="end-st" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-emerald-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
+                                <select id="end-st" onchange="autoPlan()" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-emerald-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
                                 <div class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"><i data-lucide="chevron-down" size="18"></i></div>
+                            </div>
+                        </div>
+
+                        <div class="md:col-span-2 space-y-3">
+                            <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">Travel Time</label>
+                            <div class="relative">
+                                <input type="time" id="plan-time" onchange="autoPlan()" class="w-full pl-6 pr-6 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-indigo-500/30 focus:bg-white font-black text-slate-900 transition-all cursor-pointer hover:bg-slate-100">
                             </div>
                         </div>
                     </div>
@@ -1703,18 +1724,15 @@ HTML_TEMPLATE = """
                     <div id="quick-train-preview" class="hidden mb-10 animate-in fade-in slide-in-from-top-4 duration-500">
                         <div class="flex items-center justify-between mb-4">
                             <h4 class="text-[9px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Next 1 Hour Trains from selected station
+                                <span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Upcoming Departures from Selected Station
                             </h4>
-                            <button onclick="document.getElementById('quick-train-preview').classList.add('hidden')" class="text-slate-300 hover:text-slate-500 transition-colors">
-                                <i data-lucide="x" size="12"></i>
-                            </button>
                         </div>
                         <div id="quick-train-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <!-- Injected by JS -->
                         </div>
                     </div>
 
-                    <button id="plan-btn" onclick="planJourney()" class="w-full py-7 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-[32px] shadow-2xl shadow-blue-100 transition-all active:scale-[0.98] text-[13px] uppercase tracking-[0.4em] flex items-center justify-center gap-4 group relative z-10">
+                    <button id="plan-btn" onclick="planJourney()" class="hidden w-full py-7 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-[32px] shadow-2xl shadow-blue-100 transition-all active:scale-[0.98] text-[13px] uppercase tracking-[0.4em] flex items-center justify-center gap-4 group relative z-10">
                         <span id="btn-text">Generate Neural Path</span>
                         <div id="btn-loader" class="hidden w-5 h-5 border-[3px] border-white border-t-transparent rounded-full animate-spin"></div>
                         <i data-lucide="sparkles" size="18" class="text-blue-400 group-hover:scale-125 transition-transform"></i>
@@ -1750,8 +1768,11 @@ HTML_TEMPLATE = """
                             <span id="route-fare" class="text-xl font-black">₹--</span>
                         </div>
                         <div class="bg-slate-900 p-5 rounded-[28px] shadow-lg flex flex-col gap-1 text-white">
-                            <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Crowd</span>
-                            <span id="route-load-val" class="text-xl font-black">--%</span>
+                            <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Ridership</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="route-load-val" class="text-xl font-black">--%</span>
+                                <span id="route-load-label" class="text-[8px] font-black uppercase opacity-60">Wait...</span>
+                            </div>
                         </div>
                     </div>
 
@@ -3655,11 +3676,33 @@ HTML_TEMPLATE = """
                     }
                 }
             });
+
+            // Set default time to now
+            const nowTimeInit = new Date();
+            const timeStrInit = `${String(nowTimeInit.getHours()).padStart(2, '0')}:${String(nowTimeInit.getMinutes()).padStart(2, '0')}`;
+            const timeInputInit = document.getElementById('plan-time');
+            if (timeInputInit) {
+                timeInputInit.value = timeStrInit;
+            }
+        }
+
+        function autoPlan() {
+            const f = document.getElementById('start-st').value;
+            const t = document.getElementById('end-st').value;
+            if (f && t) {
+                planJourney();
+            }
+            if (f) {
+                updateLiveStationFeed(f);
+            }
         }
 
         async function updateLiveStationFeed(stationId) {
             const preview = document.getElementById('quick-train-preview');
             const list = document.getElementById('quick-train-list');
+            const planned_time = document.getElementById('plan-time').value;
+            const endId = document.getElementById('end-st').value;
+
             if(!stationId) {
                 preview.classList.add('hidden');
                 return;
@@ -3672,32 +3715,36 @@ HTML_TEMPLATE = """
                 const res = await fetch('/api/nearest', { 
                     method: 'POST', 
                     headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({ station_id: stationId }) 
+                    body: JSON.stringify({ 
+                        station_id: stationId,
+                        planned_time: planned_time,
+                        to_id: endId // Send to_id to help filter direction
+                    }) 
                 });
                 const data = await res.json();
                 list.innerHTML = '';
                 
                 if (data.upcoming && data.upcoming.length > 0) {
-                    data.upcoming.slice(0, 10).forEach(t => {
+                    data.upcoming.forEach(t => {
                         const card = document.createElement('div');
                         card.className = "bg-slate-50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center group hover:bg-white hover:border-blue-200 transition-all";
                         card.innerHTML = `
                             <div class="flex items-center gap-3">
-                                <div class="w-1 h-8 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
+                                <div class="w-1 h-8 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : t.line === 'Green' ? 'bg-emerald-500'}"></div>
                                 <div>
                                     <p class="text-[10px] font-black text-slate-800">${t.final_stop}</p>
-                                    <p class="text-[7px] font-bold text-slate-400 uppercase">${t.direction}</p>
+                                    <p class="text-[7px] font-bold text-slate-400 uppercase">Platform ${t.platform}</p>
                                 </div>
                             </div>
                             <div class="text-right">
                                 <p class="text-[11px] font-black text-blue-600">${t.arrival_time}</p>
-                                <p class="text-[7px] font-black text-slate-400 uppercase">in ${t.eta}</p>
+                                <p class="text-[7px] font-black text-slate-400 uppercase">ETA: ${t.eta}</p>
                             </div>
                         `;
                         list.appendChild(card);
                     });
                 } else {
-                    list.innerHTML = `<div class="col-span-full py-6 text-center"><p class="text-[8px] font-black uppercase text-slate-300">No scheduled vectors in next 60m</p></div>`;
+                    list.innerHTML = `<div class="col-span-full py-6 text-center"><p class="text-[8px] font-black uppercase text-slate-300">No scheduled vectors in this direction</p></div>`;
                 }
                 lucide.createIcons();
             } catch (e) {
@@ -3706,44 +3753,29 @@ HTML_TEMPLATE = """
         }
 
         async function planJourney() {
-            const btn = document.getElementById('plan-btn');
-            const btnText = document.getElementById('btn-text');
-            const loader = document.getElementById('btn-loader');
             const outArea = document.getElementById('route-output');
-            
-            btn.disabled = true;
-            btnText.classList.add('opacity-0');
-            loader.classList.remove('hidden');
+            const plannedTime = document.getElementById('plan-time').value;
 
             try {
                 const f = document.getElementById('start-st').value, t = document.getElementById('end-st').value;
-                if (!f || !t) {
-                    btn.disabled = false;
-                    btnText.classList.remove('opacity-0');
-                    loader.classList.add('hidden');
-                    return;
-                }
+                if (!f || !t) return;
 
                 const res = await fetchWithSim('/api/plan', { 
                     method: 'POST', 
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify({
                         from: f, 
-                        to: t
+                        to: t,
+                        planned_time: plannedTime
                     }) 
                 });
                 const data = await res.json();
                 
                 if (data.status === 'closed' || data.status === 'no_trains') {
-                    btn.disabled = false;
-                    btnText.classList.remove('opacity-0');
-                    loader.classList.add('hidden');
                     alert(data.message);
                     return;
                 }
 
-                // If output was overridden by closed message, restore structure if needed (though we'll probably just reload next time)
-                // For simplicity, let's assume valid data from here
                 currentPlannedRoute = data;
                 outArea.classList.remove('hidden');
                 
@@ -3801,6 +3833,14 @@ HTML_TEMPLATE = """
                 // Crowd Data
                 const loadVal = Math.round(data.load || 35);
                 document.getElementById('route-load-val').innerText = loadVal + '%';
+                
+                // Difficulty Label
+                const loadLabel = document.getElementById('route-load-label');
+                if (loadLabel) {
+                    if (loadVal < 35) loadLabel.innerText = "Smooth";
+                    else if (loadVal < 65) loadLabel.innerText = "Active";
+                    else loadLabel.innerText = "Dense";
+                }
                 
                 // Personalized Recommendations
                 const persRecCont = document.getElementById('personalized-recommendations');
