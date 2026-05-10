@@ -279,9 +279,17 @@ _GTFS_CACHE = None  # Global cache for performance
 _GTFS_INDEX = {} # Map trip_id -> list of stop_times
 _GTFS_STATION_INDEX = {} # Map station_id -> list of trips passing through
 
+def convert_to_12h(t_str):
+    """Converts 24h string to 12h AM/PM format."""
+    try:
+        h, m, s = map(int, t_str.split(':'))
+        dt = datetime.now().replace(hour=h, minute=m, second=s)
+        return dt.strftime('%I:%M %p')
+    except: return t_str
+
 def ensure_gtfs(force=False):
     """Generates a high-frequency, dynamic GTFS simulation."""
-    global _GTFS_CACHE
+    global _GTFS_CACHE, _GTFS_INDEX, _GTFS_STATION_INDEX
     if force or not os.path.exists(GTFS_FILE):
         print(f"Generating optimized GTFS... target: {GTFS_FILE}")
         with open(GTFS_FILE, 'w', newline='') as f:
@@ -433,23 +441,30 @@ def api_nearest():
     for mid in matching_ids:
         st_trips = _GTFS_STATION_INDEX.get(mid, [])
         for row in st_trips:
-            if now_str < row['arrival_time'] < oh_str:
+            # Handle midnight wrap-around for time window
+            if now_str < row['arrival_time'] < oh_str or (oh_str < now_str and (row['arrival_time'] > now_str or row['arrival_time'] < oh_str)):
                 # Calculate ETA countdown
                 try:
                     ah, am, as_ = map(int, row['arrival_time'].split(':'))
+                    # Determine if arrival is today or tomorrow (if oh_str < now_str and arrival < oh_str)
                     arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
+                    if oh_str < now_str and row['arrival_time'] < oh_str:
+                        arrival_dt += timedelta(days=1)
+                        
                     diff = (arrival_dt - now).total_seconds()
                     if diff < 0: continue
                     
                     m, s = divmod(int(diff), 60)
                     row_copy = row.copy()
                     row_copy['eta'] = f"{m:02d}:{s:02d}"
-                    # Convert to 12h for display
-                    row_copy['arrival_time'] = convert_to_12h(row['arrival_time'])
+                    row_copy['sort_time'] = row['arrival_time']
+                    # Keep original for sorting consistency
                     upcoming.append(row_copy)
                 except: continue
     
-    upcoming.sort(key=lambda x: x['arrival_time'])
+    # Sort correctly by 24h time before conversion, awareness of midnight wrap
+    # Logic: if sort_time is less than now_str, it means it's for 'tomorrow' in the 1h window (e.g. now 23:30, train 00:05)
+    upcoming.sort(key=lambda x: (0 if x['sort_time'] >= now_str else 1, x['sort_time']))
     upcoming = upcoming[:10]
     
     # AI & Weather Data
@@ -470,18 +485,9 @@ def api_nearest():
 
     active_count = sum(1 for tid, times in trip_times.items() if times['min'] <= now_str <= times['max'])
 
-    # Sort upcoming by original string comparison (before I:M p conversion)
-    upcoming.sort(key=lambda x: x['arrival_time'])
-    
-    # Use 12-hour format for upcoming trains
+    # Final conversion to 12h for the selected top 10
     for t in upcoming:
-        try:
-            h, m, s = map(int, t['arrival_time'].split(':'))
-            dt = now.replace(hour=h, minute=m, second=s)
-            t['arrival_time'] = dt.strftime('%I:%M %p')
-        except: pass
-    
-    # Sort upcoming by original string comparison (before I:M p conversion) or keep it consistent
+        t['arrival_time'] = convert_to_12h(t['arrival_time'])
     
     return jsonify({
         'station': nearest, 
@@ -1862,8 +1868,8 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- Sentiment Engine (Visible only in History Tab as requested) -->
-            <div id="sentiment-section" class="mt-12 pt-12 border-t border-slate-100 pb-20">
+            <!-- Sentiment Engine (Visible only in History Tab) -->
+            <div id="sentiment-section" class="mt-12 pt-12 border-t border-slate-100 pb-20 hidden">
                 <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
                     <div class="flex items-center gap-6">
                         <div class="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/30"><i data-lucide="message-square" size="32"></i></div>
@@ -3004,6 +3010,13 @@ HTML_TEMPLATE = """
                 history[idx].completedAt = new Date().toISOString();
                 localStorage.setItem('metro_tickets', JSON.stringify(history));
                 renderTickets();
+                
+                // Show Sentiment Engine after a trip is completed
+                const sentimentSect = document.getElementById('sentiment-section');
+                if (sentimentSect) {
+                    sentimentSect.classList.remove('hidden');
+                    sentimentSect.scrollIntoView({ behavior: 'smooth' });
+                }
             }
         }
 
@@ -3506,9 +3519,13 @@ HTML_TEMPLATE = """
                 const rows = document.getElementById('board-rows'); rows.innerHTML = '';
                 document.getElementById('board-loading').classList.add('hidden');
                 
-                if (data.upcoming.length === 0) {
-                    rows.innerHTML = '<tr><td colspan="4" class="py-16 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest bg-slate-50/50 rounded-2xl">Signal Lost. No Upcoming departures in this vector.</td></tr>';
-                }
+            if (data.upcoming.length === 0) {
+                const now = new Date();
+                const h = now.getHours();
+                const isClosed = h >= 23 || h < 4;
+                const msg = isClosed ? "Network in Maintenance Sleep. Limited vectors available." : "Signal Lost. No upcoming departures projected in this window.";
+                rows.innerHTML = `<tr><td colspan="4" class="py-16 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest bg-slate-50/50 rounded-2xl">${msg}</td></tr>`;
+            }
 
                 data.upcoming.forEach(t => {
                     const lineCol = t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
