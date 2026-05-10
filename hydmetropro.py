@@ -106,22 +106,43 @@ def generate_ai_dataset():
     return True
 
 def predict_load_ai(station_name, hour, is_weekend=False, weather=None):
-    """Predicts load with more descriptive results for AI reasoning."""
+    """Predicts load using historical CSV data if available, fallback to heuristic."""
+    load_val_num = 0
+    found_in_csv = False
+    
+    try:
+        if os.path.exists('final_metro_dataset.csv'):
+            with open('final_metro_dataset.csv', 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Note: final_metro_dataset.csv uses 'stop_name' and 'hour'
+                    if row['stop_name'] == station_name and int(row['hour']) == hour:
+                        load_val_num = int(row['ridership'])
+                        found_in_csv = True
+                        break
+    except: pass
+
+    if found_in_csv:
+        if load_val_num > 1500: return "High", "🔴 High Crowd (Data Driven)"
+        if load_val_num > 800: return "M-High", "🟡 Moderate Rush (Data Driven)"
+        if load_val_num > 300: return "Medium", "🟢 Manageable Crowd (Data Driven)"
+        return "Low", "🟢 Calm Condition (Data Driven)"
+
+    # Heuristic Fallback
     is_peak = 1 if (7 <= hour <= 10 or 17 <= hour <= 21) else 0
-    is_it_hub = 1 if any(h in station_name for h in ['HITEC City', 'Madhapur', 'Raidurg']) else 0
+    is_it_hub = 1 if any(h in station_name for h in ['HITEC City', 'Madhapur', 'Raidurg', 'Ameerpet']) else 0
     
     score = 50 + (is_peak * 100) + (is_it_hub * 80)
     if is_weekend: score -= 30
     
-    # Weather influence: People flock to AC Metro during high heat or seek shelter during rain
     weather_str = ""
     if weather:
         if "Rain" in weather.get('condition', ''):
             score += 25
-            weather_str = "Raining outdoors"
+            weather_str = "Raining"
         if weather.get('temp', 30) > 35:
             score += 20
-            weather_str = "Intense heat"
+            weather_str = "Heat"
     
     if score > 180: return "High", f"🔴 High Crowd ({weather_str})" if weather_str else "🔴 High Crowd"
     if score > 130: return "M-High", f"🟡 Moderate Rush ({weather_str})" if weather_str else "🟡 Moderate Rush"
@@ -253,7 +274,10 @@ INTERCHANGE_DATA = {
 # ==========================================
 
 GTFS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gtfs.csv')
+RIDERSHIP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'final_metro_dataset.csv')
 _GTFS_CACHE = None  # Global cache for performance
+_GTFS_INDEX = {} # Map trip_id -> list of stop_times
+_GTFS_STATION_INDEX = {} # Map station_id -> list of trips passing through
 
 def ensure_gtfs(force=False):
     """Generates a high-frequency, dynamic GTFS simulation."""
@@ -299,7 +323,26 @@ def ensure_gtfs(force=False):
         try:
             with open(GTFS_FILE, 'r') as f:
                 _GTFS_CACHE = list(csv.DictReader(f))
-        except:
+            
+            # Build indices for O(1) lookups
+            _GTFS_INDEX = {}
+            _GTFS_STATION_INDEX = {}
+            for row in _GTFS_CACHE:
+                tid = row['trip_id']
+                sid = row['station_id']
+                if tid not in _GTFS_INDEX: _GTFS_INDEX[tid] = []
+                _GTFS_INDEX[tid].append(row)
+                
+                if sid not in _GTFS_STATION_INDEX: _GTFS_STATION_INDEX[sid] = []
+                _GTFS_STATION_INDEX[sid].append(row)
+            
+            # Pre-sort by time
+            for sid in _GTFS_STATION_INDEX:
+                _GTFS_STATION_INDEX[sid].sort(key=lambda x: x['arrival_time'])
+                
+            print(f"GTFS cache indexed: {len(_GTFS_CACHE)} rows, {len(_GTFS_INDEX)} trips.")
+        except Exception as e:
+            print(f"Crit: GTFS Load Failed: {e}")
             _GTFS_CACHE = []
     
     return _GTFS_CACHE
@@ -387,20 +430,27 @@ def api_nearest():
     oh_str = one_hour_later.strftime('%H:%M:%S')
     
     upcoming = []
-    for row in trips:
-        if row['station_id'] in matching_ids and now_str < row['arrival_time'] < oh_str:
-            # Calculate ETA countdown
-            try:
-                ah, am, as_ = map(int, row['arrival_time'].split(':'))
-                arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
-                diff = (arrival_dt - now).total_seconds()
-                if diff < 0: continue
-                
-                m, s = divmod(int(diff), 60)
-                row_copy = row.copy()
-                row_copy['eta'] = f"{m:02d}:{s:02d}"
-                upcoming.append(row_copy)
-            except: continue
+    for mid in matching_ids:
+        st_trips = _GTFS_STATION_INDEX.get(mid, [])
+        for row in st_trips:
+            if now_str < row['arrival_time'] < oh_str:
+                # Calculate ETA countdown
+                try:
+                    ah, am, as_ = map(int, row['arrival_time'].split(':'))
+                    arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
+                    diff = (arrival_dt - now).total_seconds()
+                    if diff < 0: continue
+                    
+                    m, s = divmod(int(diff), 60)
+                    row_copy = row.copy()
+                    row_copy['eta'] = f"{m:02d}:{s:02d}"
+                    # Convert to 12h for display
+                    row_copy['arrival_time'] = convert_to_12h(row['arrival_time'])
+                    upcoming.append(row_copy)
+                except: continue
+    
+    upcoming.sort(key=lambda x: x['arrival_time'])
+    upcoming = upcoming[:10]
     
     # AI & Weather Data
     weather = get_live_weather(lat=lat, lng=lng)
@@ -491,29 +541,21 @@ def api_plan():
     total_stops = len(sequence) - 1 if len(sequence) > 1 else max(0, len(sequence))
     
     # Synchronize Arrival Time with GTFS schedule
-    ensure_gtfs()
+    now_str = now.strftime('%H:%M:%S')
+    start_id = sequence[0]['id']
+    end_id = sequence[-1]['id'] if sequence else None
+    
     gtfs_arrival_time = None
     gtfs_boarding_time = None
     chosen_trip_id = None
-    
-    # Track arrival time for every stop in the journey
     stop_arrival_times = {} 
     
     try:
-        now_str = now.strftime('%H:%M:%S')
-        with open(GTFS_FILE, 'r') as f:
-            reader = csv.DictReader(f)
-            trips = list(reader)
+        # Find the next available trip at start station from indexed data
+        possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_id, []) if t['arrival_time'] > now_str]
         
-        # Find the next available trip at start station
-        start_id = sequence[0]['id']
-        end_id = sequence[-1]['id'] if sequence else None
-        
-        possible_trips = [t for t in trips if t['station_id'] == start_id and t['arrival_time'] > now_str]
-        possible_trips.sort(key=lambda x: x['arrival_time'])
-        
-        for pt in possible_trips[:5]: # Check first 5 upcoming
-            trip_data = [t for t in trips if t['trip_id'] == pt['trip_id']]
+        for pt in possible_start_trips[:5]: # Check first 5 upcoming
+            trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
             # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
             if destination_stop:
@@ -528,15 +570,13 @@ def api_plan():
                         stop_arrival_times[td['station_id']] = td['arrival_time']
                     break
             else:
-                # If no direct trip, at least provide boarding time from the first available trip
-                # This helps in interchanges where we switch lines
                 if not gtfs_boarding_time:
                     gtfs_boarding_time = pt['arrival_time']
                     chosen_trip_id = pt['trip_id']
                     for td in trip_data:
                         stop_arrival_times[td['station_id']] = td['arrival_time']
     except Exception as e:
-        print(f"GTFS Planner Sync Error: {e}")
+        print(f"GTFS Planner Indexed Sync Error: {e}")
 
     if not gtfs_boarding_time:
         # Check if outside hours (typical Hyd Metro: 6 AM to 11 PM)
@@ -922,18 +962,8 @@ def api_live_map():
     
     active_trains = []
     
-    # Read trips and group by trip_id
-    trips_by_id = {}
-    for row in trips:
-        tid = row['trip_id']
-        if tid not in trips_by_id:
-            trips_by_id[tid] = []
-        trips_by_id[tid].append(row)
-    
-    for tid, stops in trips_by_id.items():
-        # Sort stops by arrival time
-        stops.sort(key=lambda x: x['arrival_time'])
-        
+    # Use pre-built index for speed
+    for tid, stops in _GTFS_INDEX.items():
         # Find if train is currently between two stops
         for i in range(len(stops) - 1):
             s1 = stops[i]
@@ -1826,14 +1856,14 @@ HTML_TEMPLATE = """
                     <div id="history-empty" class="py-32 text-center flex flex-col items-center justify-center text-slate-300 bg-slate-50/50 rounded-[40px] border-2 border-dashed border-slate-200 shadow-inner">
                         <i data-lucide="folder-clock" size="48" class="mb-6 opacity-20 text-slate-400"></i>
                         <h4 class="text-xl font-black text-slate-400 mb-2">Vector Log Empty</h4>
-                        <p class="text-[10px] font-black uppercase tracking-widest opacity-60">Complete a journey in the Path Architect to log data</p>
-                        <button onclick="showTab('routes')" class="mt-10 px-8 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl">Launch Planner</button>
+                        <p class="text-[10px] font-black uppercase tracking-widest opacity-60">Your journey history will appear here</p>
+                        <button onclick="showTab('routes')" class="mt-10 px-8 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl">Plan First Trip</button>
                     </div>
                 </div>
             </div>
 
-            <!-- Sentiment Engine (Moved here from main content) -->
-            <div id="sentiment-section" class="mt-20 pt-20 border-t border-slate-100">
+            <!-- Sentiment Engine (Visible only in History Tab as requested) -->
+            <div id="sentiment-section" class="mt-12 pt-12 border-t border-slate-100 pb-20">
                 <div class="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
                     <div class="flex items-center gap-6">
                         <div class="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/30"><i data-lucide="message-square" size="32"></i></div>
@@ -3898,37 +3928,33 @@ HTML_TEMPLATE = """
                         let marker = trainMarkers.get(t.trip_id);
                         
                         if(!marker) {
+                            // High-fidelity train marker with direction indicator and line branding
                             const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#10b981';
                             const accent = t.line === 'Red' ? '#fee2e2' : t.line === 'Blue' ? '#dbeafe' : '#dcfce7';
                             
-                            // Line-specific train designs with direction indicators
-                            let svgPath = '';
-                            let extraElements = '';
-                            
-                            if (t.line === 'Red') {
-                                svgPath = `<rect x="10" y="8" width="30" height="14" rx="2" fill="${color}" stroke="white" stroke-width="1.5"/>
-                                           <path d="M 40,8 L 52,15 L 40,22 Z" fill="#ffffff" stroke="${color}" stroke-width="1"/>`; // White arrow indicator
-                                extraElements = `<text x="18" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white">R</text>`;
-                            } else if (t.line === 'Blue') {
-                                svgPath = `<path d="M 10,10 L 35,10 L 48,15 L 35,20 L 10,20 Z" fill="${color}" stroke="white" stroke-width="1.5"/>
-                                           <path d="M 40,12 L 46,15 L 40,18 Z" fill="#ffffff"/>`; // Inner indicator
-                                extraElements = `<text x="18" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white">B</text>`;
-                            } else {
-                                svgPath = `<rect x="8" y="8" width="35" height="14" rx="4" fill="${color}" stroke="white" stroke-width="1.5"/>
-                                           <path d="M 43,10 L 52,15 L 43,20 Z" fill="#ffffff" stroke="${color}" stroke-width="1"/>`; // White arrow indicator
-                                extraElements = `<text x="22" y="18" font-family="Plus Jakarta Sans" font-size="8" font-weight="900" fill="white">G</text>`;
-                            }
-
                             const trainIcon = L.divIcon({
                                 className: 'train-icon',
                                 html: `<div class="train-shape-inner">
                                     <svg width="60" height="40" viewBox="0 0 60 40">
-                                        <rect x="12" y="14" width="36" height="12" rx="4" fill="black" fill-opacity="0.1"/>
-                                        ${svgPath}
-                                        ${extraElements}
-                                        <rect x="14" y="11" width="3" height="3" fill="${accent}" fill-opacity="0.8" rx="0.5"/>
-                                        <rect x="20" y="11" width="3" height="3" fill="${accent}" fill-opacity="0.8" rx="0.5"/>
-                                        <rect x="26" y="11" width="3" height="3" fill="${accent}" fill-opacity="0.8" rx="0.5"/>
+                                        <!-- Shadow -->
+                                        <rect x="12" y="16" width="36" height="12" rx="4" fill="black" fill-opacity="0.15"/>
+                                        
+                                        <!-- Train Body -->
+                                        <rect x="10" y="8" width="40" height="18" rx="4" fill="${color}" stroke="white" stroke-width="2"/>
+                                        
+                                        <!-- Windows -->
+                                        <rect x="14" y="12" width="6" height="5" rx="1" fill="white" fill-opacity="0.3"/>
+                                        <rect x="22" y="12" width="6" height="5" rx="1" fill="white" fill-opacity="0.3"/>
+                                        <rect x="30" y="12" width="6" height="5" rx="1" fill="white" fill-opacity="0.3"/>
+                                        
+                                        <!-- Line Code -->
+                                        <text x="38" y="19" font-family="Plus Jakarta Sans" font-size="10" font-weight="900" fill="white" fill-opacity="0.9">${t.line[0]}</text>
+                                        
+                                        <!-- Direction Arrow (Nose) -->
+                                        <path d="M 50,12 L 58,17 L 50,22 Z" fill="#ffffff" stroke="${color}" stroke-width="1"/>
+                                        
+                                        <!-- Roof details -->
+                                        <rect x="15" y="6" width="20" height="2" rx="1" fill="white" fill-opacity="0.5"/>
                                     </svg>
                                 </div>`,
                                 iconSize: [60, 40],
