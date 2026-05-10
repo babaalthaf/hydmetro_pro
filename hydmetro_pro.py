@@ -1134,10 +1134,6 @@ HTML_TEMPLATE = """
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script type="module">
-        import { GoogleGenAI } from 'https://esm.run/@google/genai';
-        window.GoogleGenAI = GoogleGenAI;
-    </script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
@@ -1489,10 +1485,10 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="glass-card py-4 px-8 flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-6 border-slate-200">
                     <div class="flex items-baseline gap-2">
-                        <span id="clock" class="text-3xl lg:text-4xl font-black text-slate-900 tabular-nums tracking-tighter">00:00:00</span>
-                        <span id="ampm" class="text-xs font-black text-slate-400 uppercase">AM</span>
+                        <span id="clock" class="text-3xl lg:text-4xl font-black text-slate-900 tabular-nums tracking-tighter">--:--:--</span>
+                        <span id="ampm" class="text-xs font-black text-slate-400 uppercase">--</span>
                     </div>
-                    <span id="date" class="text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">October 24, 2024</span>
+                    <span id="date" class="text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">INITIALIZING...</span>
                 </div>
             </header>
 
@@ -2173,7 +2169,6 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        lucide.createIcons();
         const stations = {{ ALL_STATIONS | tojson }};
         let currentSentiment = 'neutral';
         let simulationHour = -1;
@@ -4210,34 +4205,45 @@ HTML_TEMPLATE = """
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const tabUrl = urlParams.get('tab');
-            const initialTab = "{{ initial_tab|default('home') }}";
-            
-            showTab(tabUrl || initialTab);
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const tabUrl = urlParams.get('tab');
+                const initialTab = "{{ initial_tab|default('home') }}";
+                
+                showTab(tabUrl || initialTab);
 
-            if (typeof lucide !== 'undefined') lucide.createIcons();
-            
-            initLeafletMap();
-            initGeo(); 
-            initPickers(); 
-            updateLiveTrains(); 
-            loadFeedback(); 
-            renderTickets();
-            loadSavedVectors();
-            startAINotifications();
-            
-            activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
-            trainAnimationId = requestAnimationFrame(animateTrains);
-            
-            setInterval(updateClock, 1000); 
-            updateClock();
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                
+                const safeInit = (name, fn) => {
+                    try { fn(); } catch(e) { console.error(`${name} failed`, e); }
+                };
 
-            // Set default time for planner
-            const timeNow = new Date();
-            const timeStr = timeNow.getHours().toString().padStart(2, '0') + ':' + timeNow.getMinutes().toString().padStart(2, '0');
-            const timeEl = document.getElementById('plan-time');
-            if (timeEl) timeEl.value = timeStr;
+                safeInit('Map', initLeafletMap);
+                safeInit('Geo', initGeo);
+                safeInit('Pickers', initPickers);
+                safeInit('Trains', updateLiveTrains);
+                safeInit('Feedback', loadFeedback);
+                safeInit('Tickets', renderTickets);
+                safeInit('Vectors', loadSavedVectors);
+                safeInit('AINotifs', startAINotifications);
+                
+                activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
+                trainAnimationId = requestAnimationFrame(animateTrains);
+                
+                setInterval(updateClock, 1000); 
+                updateClock();
+
+                // Set default time for planner
+                const timeNow = new Date();
+                const timeStr = timeNow.getHours().toString().padStart(2, '0') + ':' + timeNow.getMinutes().toString().padStart(2, '0');
+                const timeEl = document.getElementById('plan-time');
+                if (timeEl) timeEl.value = timeStr;
+            } catch (globalError) {
+                console.error("Critical System Boot Failure:", globalError);
+                // Ensure clock runs even if everything else dies
+                setInterval(updateClock, 1000);
+                updateClock();
+            }
         });
     </script>
 </body>
