@@ -3,7 +3,7 @@ import csv
 import json
 import math
 import random
-import requests
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
 
@@ -36,8 +36,8 @@ def get_live_weather(lat=None, lng=None):
         
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true&hourly=relative_humidity_2m,visibility"
-        response = requests.get(url, timeout=5)
-        data = response.json()
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json.loads(response.read().decode())
         
         # Comprehensive WMO Code Mapping
         wmo_mapping = {
@@ -1150,23 +1150,7 @@ HTML_TEMPLATE = """
             display: inline-block; padding: 0 40px; color: #64748b; font-size: 10px;
             font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em;
         }
-        .ticker-item span { color: #2563eb; margin-right: 8px; position: relative; }
-        .ticker-item span::before {
-            content: '';
-            position: absolute;
-            left: -12px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 6px;
-            height: 6px;
-            background: #10b981;
-            border-radius: 50%;
-            animation: pulse-ring 2s infinite;
-        }
-        @keyframes pulse-ring {
-            0% { transform: translateY(-50%) scale(0.8); opacity: 1; }
-            100% { transform: translateY(-50%) scale(2.5); opacity: 0; }
-        }
+        .ticker-item span { color: #2563eb; margin-right: 8px; }
         @keyframes ticker-kf {
             0% { transform: translate3d(0, 0, 0); }
             100% { transform: translate3d(-100%, 0, 0); }
@@ -1208,17 +1192,6 @@ HTML_TEMPLATE = """
         <div onclick="showTab('history')" class="mobile-link" id="mob-history"><i data-lucide="qr-code"></i><span>Tickets</span></div>
     </div>
 
-    <!-- Global Notification Ticker -->
-    <div class="ticker-wrap shadow-xl bg-white/80 backdrop-blur-md border-y border-slate-100 mb-4 sticky top-0 z-[4000]">
-        <div id="neural-ticker">
-            <div class="ticker-item" id="ticker-live-status"><span>LIVE</span> SYNCING STATION CROWD DYNAMICS...</div>
-            <div class="ticker-item"><span>INFO</span> METRO NETWORK ACTIVE. WELCOME TO HYDMETRO.</div>
-            <div class="ticker-item"><span>LOADING</span> PREDICTING CROWD FLOW FOR THE NEXT HOUR.</div>
-            <div class="ticker-item"><span>SYSTEM</span> 99% ON-TIME PERFORMANCE DETECTED.</div>
-            <div class="ticker-item"><span>COMFORT</span> TRAIN TEMPERATURE OPTIMIZED FOR JOURNEY.</div>
-        </div>
-    </div>
-
     <div class="main" id="main-content">
         <div id="tab-home" class="tab-content active">
             <header class="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-8 mb-2">
@@ -1242,6 +1215,15 @@ HTML_TEMPLATE = """
                     <span id="date" class="text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">October 24, 2024</span>
                 </div>
             </header>
+
+            <div class="ticker-wrap shadow-xl">
+                <div id="neural-ticker">
+                    <div class="ticker-item"><span>INFO</span> METRO NETWORK ACTIVE. WELCOME TO HYDMETRO.</div>
+                    <div class="ticker-item"><span>LOADING</span> PREDICTING CROWD FLOW FOR THE NEXT HOUR.</div>
+                    <div class="ticker-item"><span>SYSTEM</span> 99% ON-TIME PERFORMANCE DETECTED.</div>
+                    <div class="ticker-item"><span>COMFORT</span> TRAIN TEMPERATURE OPTIMIZED FOR JOURNEY.</div>
+                </div>
+            </div>
 
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-8 mb-8">
                 <div class="glass-card flex p-4 lg:p-6 items-center gap-4 lg:gap-6 border-slate-200 overflow-hidden relative group">
@@ -3097,12 +3079,6 @@ HTML_TEMPLATE = """
                 const navBtn = document.getElementById('nav-btn');
                 if (navBtn) navBtn.classList.remove('hidden');
 
-                // Update Global Notification Ticker with Load Prediction
-                const tickerLive = document.getElementById('ticker-live-status');
-                if (tickerLive) {
-                    tickerLive.innerHTML = `<span>LIVE</span> ${data.station.name}: ${data.load_val}% Crowd Density (${data.load_label})`;
-                }
-
                 document.getElementById('near-metro-live').innerText = data.station.name;
                 if (document.getElementById('near-metro-mob')) {
                     document.getElementById('near-metro-mob').innerText = 'Near ' + data.station.name + ' Hub';
@@ -3261,11 +3237,6 @@ HTML_TEMPLATE = """
             // Atmosphere Refresh (60s)
             if (weatherInterval) clearInterval(weatherInterval);
             weatherInterval = setInterval(refreshWeather, 60000);
-
-            // Live Feed Refresh (2 mins) to update crowd density even if stationary
-            setInterval(() => {
-                if (lastUserLoc) updateBoardData(lastUserLoc.lat, lastUserLoc.lng);
-            }, 120000);
 
             // Global shortcut for Map Search
             window.addEventListener('keydown', (e) => {
