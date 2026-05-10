@@ -3122,34 +3122,40 @@ HTML_TEMPLATE = """
         }
 
         function updateClock() {
-            let now = new Date();
-            if (typeof simulationHour !== 'undefined' && simulationHour !== -1) {
-                now.setHours(simulationHour);
-                if (document.getElementById('env-msg')) {
-                    if (!document.getElementById('sim-indicator')) {
-                        const badge = document.createElement('span');
-                        badge.id = 'sim-indicator';
-                        badge.className = 'ml-3 px-2 py-0.5 bg-blue-500 text-white text-[8px] font-black rounded-md tracking-widest animate-pulse';
-                        badge.innerText = 'SIMULATED';
-                        document.getElementById('ampm').after(badge);
+            try {
+                let now = new Date();
+                if (typeof simulationHour !== 'undefined' && simulationHour !== -1) {
+                    now.setHours(simulationHour);
+                    if (document.getElementById('env-msg')) {
+                        if (!document.getElementById('sim-indicator')) {
+                            const badge = document.createElement('span');
+                            badge.id = 'sim-indicator';
+                            badge.className = 'ml-3 px-2 py-0.5 bg-blue-500 text-white text-[8px] font-black rounded-md tracking-widest animate-pulse';
+                            badge.innerText = 'SIMULATED';
+                            const ampmEl = document.getElementById('ampm');
+                            if (ampmEl) ampmEl.after(badge);
+                        }
                     }
+                } else {
+                    const simInd = document.getElementById('sim-indicator');
+                    if (simInd) simInd.remove();
                 }
-            } else {
-                if (document.getElementById('sim-indicator')) document.getElementById('sim-indicator').remove();
-            }
-            let options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
-            let timeStr = now.toLocaleTimeString('en-US', options);
-            let parts = timeStr.split(' ');
-            if (parts.length === 2) {
-                document.getElementById('clock').innerText = parts[0];
-                document.getElementById('ampm').innerText = parts[1];
-            } else {
-                document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).split(' ')[0];
-                document.getElementById('ampm').innerText = now.getHours() >= 12 ? 'PM' : 'AM';
-            }
-            document.getElementById('date').innerText = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
+                
+                const clockEl = document.getElementById('clock');
+                const ampmEl = document.getElementById('ampm');
+                const dateEl = document.getElementById('date');
+
+                if (clockEl) {
+                    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+                    const parts = timeStr.split(' ');
+                    clockEl.innerText = parts[0];
+                    if (ampmEl && parts[1]) ampmEl.innerText = parts[1];
+                }
+                if (dateEl) {
+                    dateEl.innerText = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
+                }
+            } catch (e) { console.error("Clock error", e); }
         }
-        setInterval(updateClock, 1000); updateClock();
 
         function applySimulation() {
             simulationHour = parseInt(document.getElementById('sim-time').value);
@@ -3645,33 +3651,50 @@ HTML_TEMPLATE = """
             const interchanges = ['Ameerpet', 'MG Bus Station', 'JBS Parade Ground'];
             const lineIcons = { 'Red': '🔴', 'Blue': '🔵', 'Green': '🟢' };
 
-            stations.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(st => {
-                const opt = document.createElement('option');
-                opt.value = st.id;
-                let suffix = '';
-                if (interchanges.includes(st.name)) suffix = ' 🔄 [Interchange]';
-                opt.innerText = `${lineIcons[st.line]} ${st.name}${suffix}`;
-                selector.appendChild(opt);
-            });
+            if (selector && selector.options.length <= 1) {
+                stations.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(st => {
+                    const opt = document.createElement('option');
+                    opt.value = st.id;
+                    let suffix = '';
+                    if (interchanges.includes(st.name)) suffix = ' 🔄 [Interchange]';
+                    opt.innerText = `${lineIcons[st.line]} ${st.name}${suffix}`;
+                    selector.appendChild(opt);
+                });
+            }
 
             // Initial state
-            document.getElementById('near-name').innerText = "Acquiring Fix...";
+            const nearNameEl = document.getElementById('near-name');
+            if (nearNameEl) nearNameEl.innerText = "Acquiring Fix...";
+
+            // Geolocation Timeout Failsafe (2.5s)
+            const geoTimeout = setTimeout(() => {
+                if (nearNameEl && nearNameEl.innerText === "Acquiring Fix...") {
+                    console.log("Geo Timeout - Forcing Default Location");
+                    const ameerpet = stations.find(s => s.name === 'Ameerpet');
+                    lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
+                    updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
+                }
+            }, 2500);
 
             if (navigator.geolocation) {
-                // Get one point immediately for speed
                 navigator.geolocation.getCurrentPosition(
                     pos => {
+                        clearTimeout(geoTimeout);
                         lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                         updateBoardData(pos.coords.latitude, pos.coords.longitude);
                         refreshWeather();
                     },
                     err => {
-                        console.warn("Rapid fix failed. Waiting for satellite stream.");
+                        clearTimeout(geoTimeout);
+                        if (nearNameEl && nearNameEl.innerText === "Acquiring Fix...") {
+                             const ameerpet = stations.find(s => s.name === 'Ameerpet');
+                             lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
+                             updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
+                        }
                     },
                     { enableHighAccuracy: true, timeout: 5000 }
                 );
 
-                // Start continuous watch
                 navigator.geolocation.watchPosition(
                     pos => {
                         lastUserLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -3679,15 +3702,12 @@ HTML_TEMPLATE = """
                         refreshWeather();
                     },
                     err => {
-                        if (document.getElementById('near-name').innerText === "Acquiring Fix...") {
-                             const ameerpet = stations.find(s => s.name === 'Ameerpet');
-                             lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
-                             updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
-                        }
+                        console.warn("Geo Watch failed");
                     },
                     { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
                 );
             } else {
+                clearTimeout(geoTimeout);
                 const ameerpet = stations.find(s => s.name === 'Ameerpet');
                 lastUserLoc = { lat: ameerpet.lat, lng: ameerpet.lng };
                 updateBoardData(ameerpet.lat, ameerpet.lng, ameerpet.id);
@@ -3879,21 +3899,34 @@ HTML_TEMPLATE = """
                     persRecCont.innerHTML = '';
                     if (data.personalized_advices && data.personalized_advices.length > 0) {
                         if (persRecWrapper) persRecWrapper.classList.remove('hidden');
-                        data.personalized_advices.forEach(adv => {
+                        data.personalized_advices.forEach((adv, idx) => {
                             const card = document.createElement('div');
-                            card.className = "bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-start gap-4";
+                            // Ultra-prominent prominent design for top-tier AI insights
+                            card.className = `bg-indigo-600 p-6 rounded-[32px] shadow-2xl shadow-indigo-500/30 text-white flex items-start gap-6 transform transition-all duration-700 hover:scale-[1.03] border border-indigo-400/40 relative overflow-hidden`;
+                            // Staggered Fade In
+                            card.style.opacity = '0';
+                            card.style.transform = 'translateY(20px)';
+                            setTimeout(() => {
+                                card.style.opacity = '1';
+                                card.style.transform = 'translateY(0)';
+                            }, idx * 150);
+
                             card.innerHTML = `
-                                <div class="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0">
-                                    <i data-lucide="${adv.icon}" size="16"></i>
+                                <div class="absolute -right-4 -top-4 w-20 h-20 bg-white/5 rounded-full blur-2xl"></div>
+                                <div class="w-12 h-12 bg-white/10 text-white rounded-2xl flex items-center justify-center shrink-0 border border-white/20">
+                                    <i data-lucide="${adv.icon}" size="22"></i>
                                 </div>
-                                <div>
-                                    <h4 class="text-[10px] font-black text-slate-800 uppercase mb-0.5">${adv.title}</h4>
-                                    <p class="text-[9px] font-bold text-slate-500 leading-tight">${adv.text}</p>
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="px-2 py-0.5 bg-indigo-500 rounded text-[7px] font-black tracking-widest border border-indigo-400">NEURAL ADVISORY</span>
+                                        <h4 class="text-[10px] font-black uppercase tracking-widest text-indigo-200 opacity-80">${adv.title}</h4>
+                                    </div>
+                                    <p class="text-sm font-black tracking-tight leading-tight mb-1 text-white">${adv.text}</p>
                                 </div>
                             `;
                             persRecCont.appendChild(card);
                         });
-                        lucide.createIcons();
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
                     } else {
                         if (persRecWrapper) persRecWrapper.classList.add('hidden');
                     }
@@ -4073,13 +4106,15 @@ HTML_TEMPLATE = """
             } catch (e) { console.error("Sim Matrix Error:", e); }
         }
 
-        window.onload = () => {
+        window.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
             const tabUrl = urlParams.get('tab');
             const initialTab = "{{ initial_tab|default('home') }}";
             
             showTab(tabUrl || initialTab);
 
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            
             initLeafletMap();
             initGeo(); 
             initPickers(); 
@@ -4088,9 +4123,13 @@ HTML_TEMPLATE = """
             renderTickets();
             loadSavedVectors();
             startAINotifications();
+            
             activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
             trainAnimationId = requestAnimationFrame(animateTrains);
-        };
+            
+            setInterval(updateClock, 1000); 
+            updateClock();
+        });
     </script>
 </body>
 </html>
