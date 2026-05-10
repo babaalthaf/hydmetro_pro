@@ -531,6 +531,10 @@ def api_plan():
         })
 
     # Annotate sequence with reaching times and predict load for each station
+    # Fetch weather once for the journey to save overhead
+    weather_cache = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
+    is_weekend = now.weekday() >= 5
+
     for s in sequence:
         s['reaching_at_raw'] = stop_arrival_times.get(s['id'])
         reach_hour = now.hour
@@ -545,9 +549,7 @@ def api_plan():
             s['reaching_at'] = "--:--"
         
         # Add AI Predicted Load for every stop
-        is_weekend = now.weekday() >= 5
-        weather = get_live_weather(lat=s['lat'], lng=s['lng'])
-        load_label, _ = predict_load_ai(s['name'], reach_hour, is_weekend=is_weekend, weather=weather)
+        load_label, _ = predict_load_ai(s['name'], reach_hour, is_weekend=is_weekend, weather=weather_cache)
         s['predicted_load'] = load_label
 
     # Calculate Total Distance for Precise Fare Prediction
@@ -587,9 +589,7 @@ def api_plan():
     
     # AI Recommendation logic
     start_station_name = sequence[0]['name']
-    weather = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
-    is_weekend = now.weekday() >= 5
-    load_val, _ = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
+    load_val, _ = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather_cache)
     
     # NEW: Numerical Load and Peak Intensity Math
     load_pct = 35 # Base
@@ -1519,12 +1519,12 @@ HTML_TEMPLATE = """
                             </div>
                         </div>
 
-                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2">
+                        <div class="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-2 transition-all hover:bg-indigo-50/30">
                             <div class="flex items-center gap-2 text-indigo-600">
                                 <i data-lucide="brain" size="14"></i>
-                                <span class="text-[9px] font-black uppercase tracking-widest">Trip Advice</span>
+                                <span class="text-[9px] font-black uppercase tracking-widest">Neural Path Logic</span>
                             </div>
-                            <p id="route-rec" class="text-[11px] font-bold text-slate-600 leading-tight line-clamp-2">--</p>
+                            <p id="route-rec" class="text-[11px] font-bold text-slate-600 leading-tight line-clamp-2 italic">--</p>
                         </div>
 
                         <div class="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 shadow-sm flex flex-col gap-2">
@@ -1810,6 +1810,8 @@ HTML_TEMPLATE = """
         let simulationHour = -1;
         let activeUpdateInterval = null;
         let currentPlannedRoute = null;
+        let lastCalculatedFare = 0;
+        let plannedRoutePolyline = null;
         let lastUserLoc = null;
         let lastStationLoc = null;
         let weatherInterval = null;
@@ -3351,7 +3353,7 @@ HTML_TEMPLATE = """
                                 <div class="w-10 h-10 bg-slate-50 text-slate-600 rounded-xl flex items-center justify-center shrink-0">
                                     <i data-lucide="${adv.icon}" size="16"></i>
                                 </div>
-                                <div>
+                                <div class="flex-1">
                                     <h4 class="text-[10px] font-black text-slate-800 uppercase mb-0.5">${adv.title}</h4>
                                     <p class="text-[9px] font-bold text-slate-500 leading-tight">${adv.text}</p>
                                 </div>
@@ -3370,6 +3372,8 @@ HTML_TEMPLATE = """
                 const stopsCont = document.getElementById('route-stops-list');
                 if (stopsCont) {
                     stopsCont.innerHTML = '';
+                    // User Request: Show only in-between stations
+                    // Actually usually it means From -> To with everything in between
                     data.sequence.forEach((s, idx) => {
                         const sDiv = document.createElement('div');
                         sDiv.className = "flex items-center gap-4 group";
@@ -3381,14 +3385,14 @@ HTML_TEMPLATE = """
                         sDiv.innerHTML = `
                             <div class="relative flex flex-col items-center">
                                 <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-transform group-hover:scale-125"></div>
-                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-full w-0.5 h-4 ${lineCol} opacity-20"></div>` : ''}
+                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-full w-px h-10 ${lineCol} opacity-20"></div>` : ''}
                             </div>
-                            <div class="flex-1">
+                            <div class="flex-1 py-1">
                                 <div class="flex justify-between items-center">
                                     <p class="text-xs font-black text-slate-800">${s.name}</p>
                                     <span class="text-[9px] font-black text-slate-300 uppercase">${s.reaching_at}</span>
                                 </div>
-                                <div class="flex items-center gap-2 mt-1">
+                                <div class="flex items-center gap-2 mt-0.5">
                                     <span class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">${s.line} Line</span>
                                     ${s.predicted_load ? `<span class="text-[7px] font-black px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 uppercase tracking-tighter">${s.predicted_load} Crowd</span>` : ''}
                                 </div>
@@ -3398,63 +3402,34 @@ HTML_TEMPLATE = """
                     });
                 }
 
-                // Path Sequence
-                const pathHeader = document.createElement('h5');
-                pathHeader.className = "text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8 mt-12";
-                pathHeader.innerText = "Network Vector Stream";
-                seq.appendChild(pathHeader);
-
-                const streamWrap = document.createElement('div');
-                streamWrap.className = "relative pl-10 border-l-2 border-slate-100 space-y-12 ml-4 mb-10";
-                data.sequence.forEach((s) => {
-                    const step = document.createElement('div');
-                    step.className = 'relative flex items-center justify-between gap-6';
-                    
-                    const loadColor = s.predicted_load === 'High' ? 'text-red-600 bg-red-50' : 
-                                     s.predicted_load === 'Medium' ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50';
-                    
-                    step.innerHTML = `
-                        <div class="absolute -left-[49px] w-4 h-4 rounded-full border-4 border-white shadow-lg ${s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}"></div>
-                        <div class="flex-1">
-                            <div class="flex items-center gap-3">
-                                <p class="font-black text-slate-800 text-lg tracking-tight">${s.name}</p>
-                                <span class="px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${loadColor}">${s.predicted_load} LOAD</span>
-                            </div>
-                            <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${s.line} Line Segment</p>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-[14px] font-black text-slate-900 tabular-nums">${s.reaching_at}</p>
-                            <p class="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Arrival</p>
-                        </div>`;
-                    streamWrap.appendChild(step);
-                });
-                seq.appendChild(streamWrap);
-
-                const sched = document.getElementById('schedule-list'); sched.innerHTML = '';
-                data.upcoming_hour.forEach(u => {
-                    const div = document.createElement('div'); 
-                    div.className = 'flex justify-between items-center bg-white p-6 rounded-3xl border border-slate-50 shadow-sm hover:shadow-md transition-all';
-                    div.innerHTML = `
-                        <div class="flex items-center gap-5">
-                            <div class="w-12 h-12 rounded-2xl bg-slate-50 flex flex-col items-center justify-center border border-slate-100">
-                                <span class="text-[8px] font-black text-slate-400 uppercase">PLAT</span>
-                                <span class="text-[14px] font-black text-slate-900">${u.platform}</span>
-                            </div>
-                            <div>
-                                <span class="text-sm font-black text-slate-700 block">${u.final_stop}</span>
-                                <div class="flex items-center gap-2">
-                                    <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${u.line === 'Red' ? 'bg-red-500' : u.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}">${u.line} LINE</span>
-                                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest">Arrives: ${u.arrival_time}</span>
+                const sched = document.getElementById('schedule-list'); 
+                if (sched) {
+                    sched.innerHTML = '';
+                    data.upcoming_hour.forEach(u => {
+                        const div = document.createElement('div'); 
+                        div.className = 'flex justify-between items-center bg-white p-6 rounded-3xl border border-slate-50 shadow-sm hover:shadow-md transition-all';
+                        div.innerHTML = `
+                            <div class="flex items-center gap-5">
+                                <div class="w-12 h-12 rounded-2xl bg-slate-50 flex flex-col items-center justify-center border border-slate-100">
+                                    <span class="text-[8px] font-black text-slate-400 uppercase">PLAT</span>
+                                    <span class="text-[14px] font-black text-slate-900">${u.platform}</span>
+                                </div>
+                                <div>
+                                    <span class="text-sm font-black text-slate-700 block">${u.final_stop}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${u.line === 'Red' ? 'bg-red-500' : u.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}">${u.line} LINE</span>
+                                        <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest">Arrives: ${u.arrival_time}</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="text-right">
-                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Reach Dest</span>
-                            <p class="text-[15px] font-black text-blue-600 tabular-nums">${u.est_reach || '--:--'}</p>
-                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">in ${u.eta}m</p>
-                        </div>`;
-                    sched.appendChild(div);
-                });
+                            <div class="text-right">
+                                <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Reach Dest</span>
+                                <p class="text-[15px] font-black text-blue-600 tabular-nums">${u.est_reach || '--:--'}</p>
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">in ${u.eta}m</p>
+                            </div>`;
+                        sched.appendChild(div);
+                    });
+                }
                 
                 lucide.createIcons();
                 document.getElementById('route-output').scrollIntoView({ behavior: 'smooth' });
