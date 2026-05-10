@@ -445,6 +445,9 @@ def api_nearest():
     oh_str = one_hour_later.strftime('%H:%M:%S')
     
     upcoming = []
+    # Build a stations map for quick lookup
+    st_map = {s['id']: s for s in STATIONS_LIST}
+    
     for mid in matching_ids:
         st_trips = _GTFS_STATION_INDEX.get(mid, [])
         for row in st_trips:
@@ -470,14 +473,22 @@ def api_nearest():
                     
                     m, s = divmod(int(diff), 60)
                     row_copy = row.copy()
+                    
+                    # Direction detection
+                    trip_stops = _GTFS_INDEX.get(row['trip_id'], [])
+                    if trip_stops:
+                        dest_st_name = st_map.get(trip_stops[-1]['station_id'], {}).get('name', 'Terminal')
+                        row_copy['direction'] = f"Towards {dest_st_name}"
+                    else:
+                        row_copy['direction'] = "Main Line"
+
                     row_copy['eta'] = f"{m:02d}:{s:02d}"
+                    row_copy['eta_mins'] = m
                     row_copy['sort_time'] = row['arrival_time']
-                    # Keep original for sorting consistency
                     upcoming.append(row_copy)
                 except: continue
     
-    # Sort correctly by 24h time before conversion, awareness of midnight wrap
-    # Logic: if sort_time is less than now_str, it means it's for 'tomorrow' in the 1h window (e.g. now 23:30, train 00:05)
+    # Sort correctly
     upcoming.sort(key=lambda x: (0 if x['sort_time'] >= now_str else 1, x['sort_time']))
     upcoming = upcoming[:10]
     
@@ -527,8 +538,15 @@ def api_weather():
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
-    now = get_app_now()
+    planned_time = data.get('planned_time')
     
+    now = get_app_now()
+    if planned_time:
+        try:
+            ph, pm = map(int, planned_time.split(':'))
+            now = now.replace(hour=ph, minute=pm, second=0, microsecond=0)
+        except: pass
+        
     # BFS find path
     queue = [(start_id, [start_id])]
     visited = {start_id}
@@ -570,31 +588,47 @@ def api_plan():
     chosen_trip_id = None
     stop_arrival_times = {} 
     
+    upcoming_hour = []
     try:
-        # Find the next available trip at start station from indexed data
+        # Find the next available trip at start station that follows the path
+        # 1. Filter trips at start_id appearing after now_str
         possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_id, []) if t['arrival_time'] > now_str]
+        # Sort by arrival time
+        possible_start_trips.sort(key=lambda x: x['arrival_time'])
         
-        for pt in possible_start_trips[:10]: # Check first 10 upcoming as requested
+        for pt in possible_start_trips:
             trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
-            # Check if this trip eventually reaches the end_id
+            # Direction Filter: Check if this trip eventually reaches the end_id AFTER the start_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
-            if destination_stop:
-                # Basic check: destination must be after start
-                if destination_stop['arrival_time'] > pt['arrival_time']:
+            
+            if destination_stop and destination_stop['arrival_time'] > pt['arrival_time']:
+                # Success: This trip goes in the right direction
+                if not chosen_trip_id:
+                    chosen_trip_id = pt['trip_id']
+                    gtfs_boarding_time = pt['arrival_time']
                     gtfs_arrival_time = destination_stop['arrival_time']
-                    gtfs_boarding_time = pt['arrival_time']
-                    chosen_trip_id = pt['trip_id']
+                    for td in trip_data:
+                        stop_arrival_times[td['station_id']] = td['arrival_time']
+
+                # ETA & Detail for list
+                try:
+                    row_copy = pt.copy()
+                    ah, am, as_ = map(int, pt['arrival_time'].split(':'))
+                    arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
+                    diff = (arrival_dt - now).total_seconds()
+                    row_copy['eta_mins'] = int(diff // 60)
                     
-                    # Map all stop times for this trip
-                    for td in trip_data:
-                        stop_arrival_times[td['station_id']] = td['arrival_time']
-                    break
-            else:
-                if not gtfs_boarding_time:
-                    gtfs_boarding_time = pt['arrival_time']
-                    chosen_trip_id = pt['trip_id']
-                    for td in trip_data:
-                        stop_arrival_times[td['station_id']] = td['arrival_time']
+                    # Est reach at destination for this train
+                    dh, dm, ds = map(int, destination_stop['arrival_time'].split(':'))
+                    row_copy['est_reach'] = now.replace(hour=dh, minute=dm, second=ds).strftime('%I:%M %p')
+                    
+                    # Simple 12h conversion for the list
+                    row_copy['arrival_12'] = arrival_dt.strftime('%I:%M %p')
+
+                    upcoming_hour.append(row_copy)
+                except: continue
+                
+                if len(upcoming_hour) >= 10: break
     except Exception as e:
         print(f"GTFS Planner Indexed Sync Error: {e}")
 
@@ -1756,12 +1790,6 @@ HTML_TEMPLATE = """
                             <!-- Injected by JS -->
                         </div>
                     </div>
-
-                    <button id="plan-btn" onclick="planJourney()" class="hidden w-full py-7 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-[32px] shadow-2xl shadow-blue-100 transition-all active:scale-[0.98] text-[13px] uppercase tracking-[0.4em] flex items-center justify-center gap-4 group relative z-10">
-                        <span id="btn-text">Generate Neural Path</span>
-                        <div id="btn-loader" class="hidden w-5 h-5 border-[3px] border-white border-t-transparent rounded-full animate-spin"></div>
-                        <i data-lucide="sparkles" size="18" class="text-blue-400 group-hover:scale-125 transition-transform"></i>
-                    </button>
                 </div>
 
                 <div id="route-output" class="hidden space-y-6 pb-12">
@@ -1818,6 +1846,16 @@ HTML_TEMPLATE = """
                         </h5>
                         <div id="personalized-recommendations" class="space-y-3">
                             <!-- Dynamic Advices -->
+                        </div>
+                    </div>
+
+                    <!-- NEXT 10 TRAINS SECTION -->
+                    <div id="route-trains-wrapper" class="hidden mt-8">
+                        <h5 class="text-[11px] font-black uppercase text-blue-600 tracking-widest pl-2 mb-4 flex items-center gap-2">
+                            <i data-lucide="train-front" size="14"></i> Next 10 Available Trains
+                        </h5>
+                        <div id="route-trains-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <!-- Injected by JS -->
                         </div>
                     </div>
 
@@ -3851,8 +3889,73 @@ HTML_TEMPLATE = """
                 document.getElementById('route-dur').innerText = data.duration + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
                 document.getElementById('route-dist-km').innerText = data.total_km + ' KM';
+                document.getElementById('route-load-val').innerText = data.load + '%';
+                document.getElementById('route-load-label').innerText = data.load > 60 ? 'HIGH' : data.load > 30 ? 'MODERATE' : 'LOW';
                 document.getElementById('route-rec').innerText = data.recommendation;
                 
+                // Next 10 Trains in Planner
+                const trainList = document.getElementById('route-trains-list');
+                const trainWrapper = document.getElementById('route-trains-wrapper');
+                if (trainList) {
+                    trainList.innerHTML = '';
+                    if (data.upcoming_hour && data.upcoming_hour.length > 0) {
+                        trainWrapper.classList.remove('hidden');
+                        data.upcoming_hour.forEach(t => {
+                            const card = document.createElement('div');
+                            card.className = "bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center group hover:border-blue-300 transition-all";
+                            card.innerHTML = `
+                                <div class="flex items-center gap-3">
+                                    <div class="w-1.5 h-10 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500'}"></div>
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[10px] font-black text-slate-900 uppercase">${t.arrival_12}</span>
+                                            <span class="text-[8px] font-bold px-1.5 py-0.5 rounded ${t.line === 'Red' ? 'bg-red-50' : t.line === 'Blue' ? 'bg-blue-50' : 'bg-emerald-50'} ${t.line === 'Red' ? 'text-red-500' : t.line === 'Blue' ? 'text-blue-500' : 'text-emerald-500'}">${t.line}</span>
+                                        </div>
+                                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${t.direction || 'Main Line'}</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-[12px] font-black text-slate-900">${t.eta_mins}m</span>
+                                    <p class="text-[8px] font-bold text-slate-400 uppercase">Wait</p>
+                                </div>
+                            `;
+                            trainList.appendChild(card);
+                        });
+                    } else {
+                        trainWrapper.classList.add('hidden');
+                    }
+                }
+
+                // Intermediate Stations Rendering
+                const stopsList = document.getElementById('route-stops-list');
+                if (stopsList) {
+                    stopsList.innerHTML = '';
+                    data.sequence.forEach((s, idx) => {
+                        const item = document.createElement('div');
+                        item.className = "flex items-start gap-4 relative";
+                        
+                        const isFirst = idx === 0;
+                        const isLast = idx === data.sequence.length - 1;
+                        
+                        item.innerHTML = `
+                            <div class="flex flex-col items-center shrink-0 h-full">
+                                <div class="w-4 h-4 rounded-full border-4 border-white shadow-sm z-10 ${isFirst || isLast ? (s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500') : 'bg-slate-200'}"></div>
+                                ${!isLast ? `<div class="w-0.5 h-full absolute top-2 bg-slate-100 -z-0"></div>` : ''}
+                            </div>
+                            <div class="pb-6 flex-1 flex justify-between items-center border-b border-slate-50 last:border-0 -mt-0.5">
+                                <div>
+                                    <h5 class="text-[11px] font-black text-slate-900 uppercase tracking-tight">${s.name}</h5>
+                                    <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${s.line} Line ${isFirst ? '· Boarding' : isLast ? '· Destination' : ''}</p>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-[10px] font-black text-slate-800">${s.reaching_at || '--'}</span>
+                                </div>
+                            </div>
+                        `;
+                        stopsList.appendChild(item);
+                    });
+                }
+
                 // Gemini Personalized Suggestion
                 if (window.GoogleGenAI && "{{ GEMINI_API_KEY }}") {
                     try {
@@ -4129,6 +4232,12 @@ HTML_TEMPLATE = """
             
             setInterval(updateClock, 1000); 
             updateClock();
+
+            // Set default time for planner
+            const timeNow = new Date();
+            const timeStr = timeNow.getHours().toString().padStart(2, '0') + ':' + timeNow.getMinutes().toString().padStart(2, '0');
+            const timeEl = document.getElementById('plan-time');
+            if (timeEl) timeEl.value = timeStr;
         });
     </script>
 </body>
