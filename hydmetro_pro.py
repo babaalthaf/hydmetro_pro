@@ -445,9 +445,6 @@ def api_nearest():
     oh_str = one_hour_later.strftime('%H:%M:%S')
     
     upcoming = []
-    # Build a stations map for quick lookup
-    st_map = {s['id']: s for s in STATIONS_LIST}
-    
     for mid in matching_ids:
         st_trips = _GTFS_STATION_INDEX.get(mid, [])
         for row in st_trips:
@@ -473,22 +470,14 @@ def api_nearest():
                     
                     m, s = divmod(int(diff), 60)
                     row_copy = row.copy()
-                    
-                    # Direction detection
-                    trip_stops = _GTFS_INDEX.get(row['trip_id'], [])
-                    if trip_stops:
-                        dest_st_name = st_map.get(trip_stops[-1]['station_id'], {}).get('name', 'Terminal')
-                        row_copy['direction'] = f"Towards {dest_st_name}"
-                    else:
-                        row_copy['direction'] = "Main Line"
-
                     row_copy['eta'] = f"{m:02d}:{s:02d}"
-                    row_copy['eta_mins'] = m
                     row_copy['sort_time'] = row['arrival_time']
+                    # Keep original for sorting consistency
                     upcoming.append(row_copy)
                 except: continue
     
-    # Sort correctly
+    # Sort correctly by 24h time before conversion, awareness of midnight wrap
+    # Logic: if sort_time is less than now_str, it means it's for 'tomorrow' in the 1h window (e.g. now 23:30, train 00:05)
     upcoming.sort(key=lambda x: (0 if x['sort_time'] >= now_str else 1, x['sort_time']))
     upcoming = upcoming[:10]
     
@@ -538,15 +527,8 @@ def api_weather():
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
-    planned_time = data.get('planned_time')
-    
     now = get_app_now()
-    if planned_time:
-        try:
-            ph, pm = map(int, planned_time.split(':'))
-            now = now.replace(hour=ph, minute=pm, second=0, microsecond=0)
-        except: pass
-        
+    
     # BFS find path
     queue = [(start_id, [start_id])]
     visited = {start_id}
@@ -588,47 +570,31 @@ def api_plan():
     chosen_trip_id = None
     stop_arrival_times = {} 
     
-    upcoming_hour = []
     try:
-        # Find the next available trip at start station that follows the path
-        # 1. Filter trips at start_id appearing after now_str
+        # Find the next available trip at start station from indexed data
         possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_id, []) if t['arrival_time'] > now_str]
-        # Sort by arrival time
-        possible_start_trips.sort(key=lambda x: x['arrival_time'])
         
-        for pt in possible_start_trips:
+        for pt in possible_start_trips[:10]: # Check first 10 upcoming as requested
             trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
-            # Direction Filter: Check if this trip eventually reaches the end_id AFTER the start_id
+            # Check if this trip eventually reaches the end_id
             destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
-            
-            if destination_stop and destination_stop['arrival_time'] > pt['arrival_time']:
-                # Success: This trip goes in the right direction
-                if not chosen_trip_id:
-                    chosen_trip_id = pt['trip_id']
-                    gtfs_boarding_time = pt['arrival_time']
+            if destination_stop:
+                # Basic check: destination must be after start
+                if destination_stop['arrival_time'] > pt['arrival_time']:
                     gtfs_arrival_time = destination_stop['arrival_time']
+                    gtfs_boarding_time = pt['arrival_time']
+                    chosen_trip_id = pt['trip_id']
+                    
+                    # Map all stop times for this trip
                     for td in trip_data:
                         stop_arrival_times[td['station_id']] = td['arrival_time']
-
-                # ETA & Detail for list
-                try:
-                    row_copy = pt.copy()
-                    ah, am, as_ = map(int, pt['arrival_time'].split(':'))
-                    arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
-                    diff = (arrival_dt - now).total_seconds()
-                    row_copy['eta_mins'] = int(diff // 60)
-                    
-                    # Est reach at destination for this train
-                    dh, dm, ds = map(int, destination_stop['arrival_time'].split(':'))
-                    row_copy['est_reach'] = now.replace(hour=dh, minute=dm, second=ds).strftime('%I:%M %p')
-                    
-                    # Simple 12h conversion for the list
-                    row_copy['arrival_12'] = arrival_dt.strftime('%I:%M %p')
-
-                    upcoming_hour.append(row_copy)
-                except: continue
-                
-                if len(upcoming_hour) >= 10: break
+                    break
+            else:
+                if not gtfs_boarding_time:
+                    gtfs_boarding_time = pt['arrival_time']
+                    chosen_trip_id = pt['trip_id']
+                    for td in trip_data:
+                        stop_arrival_times[td['station_id']] = td['arrival_time']
     except Exception as e:
         print(f"GTFS Planner Indexed Sync Error: {e}")
 
@@ -1134,6 +1100,10 @@ HTML_TEMPLATE = """
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script type="module">
+        import { GoogleGenAI } from 'https://esm.run/@google/genai';
+        window.GoogleGenAI = GoogleGenAI;
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
@@ -1485,10 +1455,10 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="glass-card py-4 px-8 flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-6 border-slate-200">
                     <div class="flex items-baseline gap-2">
-                        <span id="clock" class="text-3xl lg:text-4xl font-black text-slate-900 tabular-nums tracking-tighter">--:--:--</span>
-                        <span id="ampm" class="text-xs font-black text-slate-400 uppercase">--</span>
+                        <span id="clock" class="text-3xl lg:text-4xl font-black text-slate-900 tabular-nums tracking-tighter">00:00:00</span>
+                        <span id="ampm" class="text-xs font-black text-slate-400 uppercase">AM</span>
                     </div>
-                    <span id="date" class="text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">INITIALIZING...</span>
+                    <span id="date" class="text-[9px] lg:text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">October 24, 2024</span>
                 </div>
             </header>
 
@@ -1743,6 +1713,13 @@ HTML_TEMPLATE = """
                     
                     <!-- Input Matrix -->
                     <div class="grid grid-cols-1 md:grid-cols-11 items-center gap-2 mb-10">
+                        <div class="md:col-span-2 space-y-3">
+                            <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">Travel Time</label>
+                            <div class="relative">
+                                <input type="time" id="plan-time" onchange="autoPlan()" class="w-full pl-6 pr-6 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-indigo-500/30 focus:bg-white font-black text-slate-900 transition-all cursor-pointer hover:bg-slate-100">
+                            </div>
+                        </div>
+
                         <div class="md:col-span-4 space-y-3">
                             <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">From Station</label>
                             <div class="relative">
@@ -1764,13 +1741,6 @@ HTML_TEMPLATE = """
                                 <div class="absolute left-6 top-1/2 -translate-y-1/2 text-emerald-500"><i data-lucide="map-pin" size="18"></i></div>
                                 <select id="end-st" onchange="autoPlan()" class="w-full pl-14 pr-8 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-emerald-500/30 focus:bg-white font-black appearance-none text-slate-900 transition-all cursor-pointer hover:bg-slate-100"></select>
                                 <div class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none"><i data-lucide="chevron-down" size="18"></i></div>
-                            </div>
-                        </div>
-
-                        <div class="md:col-span-2 space-y-3">
-                            <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">Travel Time</label>
-                            <div class="relative">
-                                <input type="time" id="plan-time" onchange="autoPlan()" class="w-full pl-6 pr-6 py-6 bg-slate-50 border-2 border-transparent rounded-[28px] outline-none focus:border-indigo-500/30 focus:bg-white font-black text-slate-900 transition-all cursor-pointer hover:bg-slate-100">
                             </div>
                         </div>
                     </div>
@@ -1842,16 +1812,6 @@ HTML_TEMPLATE = """
                         </h5>
                         <div id="personalized-recommendations" class="space-y-3">
                             <!-- Dynamic Advices -->
-                        </div>
-                    </div>
-
-                    <!-- NEXT 10 TRAINS SECTION -->
-                    <div id="route-trains-wrapper" class="hidden mt-8">
-                        <h5 class="text-[11px] font-black uppercase text-blue-600 tracking-widest pl-2 mb-4 flex items-center gap-2">
-                            <i data-lucide="train-front" size="14"></i> Next 10 Available Trains
-                        </h5>
-                        <div id="route-trains-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <!-- Injected by JS -->
                         </div>
                     </div>
 
@@ -2169,6 +2129,7 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        lucide.createIcons();
         const stations = {{ ALL_STATIONS | tojson }};
         let currentSentiment = 'neutral';
         let simulationHour = -1;
@@ -3792,7 +3753,14 @@ HTML_TEMPLATE = """
             }
 
             preview.classList.remove('hidden');
-            list.innerHTML = `<div class="col-span-full py-6 flex flex-col items-center gap-2"><div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p class="text-[8px] font-black uppercase text-slate-400">Syncing Forecast...</p></div>`;
+            
+            const endName = endId ? (stations.find(s => s.id === endId)?.name || '') : null;
+            const directionText = endName ? `Towards ${endName}` : 'All Directions';
+            
+            list.innerHTML = `<div class="col-span-full py-6 flex flex-col items-center gap-2">
+                <div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <p class="text-[8px] font-black uppercase text-slate-400">Syncing ${directionText} Forecast...</p>
+            </div>`;
 
             try {
                 const res = await fetch('/api/nearest', { 
@@ -3808,26 +3776,39 @@ HTML_TEMPLATE = """
                 list.innerHTML = '';
                 
                 if (data.upcoming && data.upcoming.length > 0) {
+                    // Update header if we have a direction
+                    const previewHeader = preview.querySelector('h4');
+                    if (previewHeader) {
+                        previewHeader.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Next 10 Arrivals ${endName ? `Filtered for ${endName}` : 'at Station'}`;
+                    }
+
                     data.upcoming.forEach(t => {
                         const card = document.createElement('div');
-                        card.className = "bg-slate-50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center group hover:bg-white hover:border-blue-200 transition-all";
+                        card.className = "bg-white p-5 rounded-[24px] border border-slate-100 flex justify-between items-center group hover:border-blue-500 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5";
                         card.innerHTML = `
-                            <div class="flex items-center gap-3">
-                                <div class="w-1 h-8 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : t.line === 'Green' ? 'bg-emerald-500'}"></div>
+                            <div class="flex items-center gap-4">
+                                <div class="w-1.5 h-10 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500'}"></div>
                                 <div>
-                                    <p class="text-[10px] font-black text-slate-800">${t.final_stop}</p>
-                                    <p class="text-[7px] font-bold text-slate-400 uppercase">Platform ${t.platform}</p>
+                                    <p class="text-xs font-black text-slate-900">${t.final_stop}</p>
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <span class="px-1.5 py-0.5 bg-slate-900 text-white text-[7px] font-black rounded uppercase">Platform ${t.platform}</span>
+                                        <span class="text-[7px] font-bold text-slate-400 uppercase tracking-widest">${t.line} Line</span>
+                                    </div>
                                 </div>
                             </div>
                             <div class="text-right">
-                                <p class="text-[11px] font-black text-blue-600">${t.arrival_time}</p>
-                                <p class="text-[7px] font-black text-slate-400 uppercase">ETA: ${t.eta}</p>
+                                <p class="text-xs font-black text-blue-600">${t.arrival_time}</p>
+                                <p class="text-[8px] font-black text-slate-400 uppercase tracking-tighter mt-0.5">ETA: ${t.eta}</p>
                             </div>
                         `;
                         list.appendChild(card);
                     });
                 } else {
-                    list.innerHTML = `<div class="col-span-full py-6 text-center"><p class="text-[8px] font-black uppercase text-slate-300">No scheduled vectors in this direction</p></div>`;
+                    list.innerHTML = `<div class="col-span-full py-12 text-center bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-100">
+                        <i data-lucide="wifi-off" class="mx-auto mb-3 text-slate-300" size="24"></i>
+                        <p class="text-[10px] font-black uppercase text-slate-400 tracking-widest">No matching vectors found for this trajectory</p>
+                        <p class="text-[8px] font-medium text-slate-300 mt-1 uppercase">Try adjusting your travel time or destination</p>
+                    </div>`;
                 }
                 lucide.createIcons();
             } catch (e) {
@@ -3884,73 +3865,8 @@ HTML_TEMPLATE = """
                 document.getElementById('route-dur').innerText = data.duration + 'm';
                 document.getElementById('route-fare').innerText = '₹' + data.fare;
                 document.getElementById('route-dist-km').innerText = data.total_km + ' KM';
-                document.getElementById('route-load-val').innerText = data.load + '%';
-                document.getElementById('route-load-label').innerText = data.load > 60 ? 'HIGH' : data.load > 30 ? 'MODERATE' : 'LOW';
                 document.getElementById('route-rec').innerText = data.recommendation;
                 
-                // Next 10 Trains in Planner
-                const trainList = document.getElementById('route-trains-list');
-                const trainWrapper = document.getElementById('route-trains-wrapper');
-                if (trainList) {
-                    trainList.innerHTML = '';
-                    if (data.upcoming_hour && data.upcoming_hour.length > 0) {
-                        trainWrapper.classList.remove('hidden');
-                        data.upcoming_hour.forEach(t => {
-                            const card = document.createElement('div');
-                            card.className = "bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center group hover:border-blue-300 transition-all";
-                            card.innerHTML = `
-                                <div class="flex items-center gap-3">
-                                    <div class="w-1.5 h-10 rounded-full ${t.line === 'Red' ? 'bg-red-500' : t.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500'}"></div>
-                                    <div>
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-[10px] font-black text-slate-900 uppercase">${t.arrival_12}</span>
-                                            <span class="text-[8px] font-bold px-1.5 py-0.5 rounded ${t.line === 'Red' ? 'bg-red-50' : t.line === 'Blue' ? 'bg-blue-50' : 'bg-emerald-50'} ${t.line === 'Red' ? 'text-red-500' : t.line === 'Blue' ? 'text-blue-500' : 'text-emerald-500'}">${t.line}</span>
-                                        </div>
-                                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${t.direction || 'Main Line'}</p>
-                                    </div>
-                                </div>
-                                <div class="text-right">
-                                    <span class="text-[12px] font-black text-slate-900">${t.eta_mins}m</span>
-                                    <p class="text-[8px] font-bold text-slate-400 uppercase">Wait</p>
-                                </div>
-                            `;
-                            trainList.appendChild(card);
-                        });
-                    } else {
-                        trainWrapper.classList.add('hidden');
-                    }
-                }
-
-                // Intermediate Stations Rendering
-                const stopsList = document.getElementById('route-stops-list');
-                if (stopsList) {
-                    stopsList.innerHTML = '';
-                    data.sequence.forEach((s, idx) => {
-                        const item = document.createElement('div');
-                        item.className = "flex items-start gap-4 relative";
-                        
-                        const isFirst = idx === 0;
-                        const isLast = idx === data.sequence.length - 1;
-                        
-                        item.innerHTML = `
-                            <div class="flex flex-col items-center shrink-0 h-full">
-                                <div class="w-4 h-4 rounded-full border-4 border-white shadow-sm z-10 ${isFirst || isLast ? (s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500') : 'bg-slate-200'}"></div>
-                                ${!isLast ? `<div class="w-0.5 h-full absolute top-2 bg-slate-100 -z-0"></div>` : ''}
-                            </div>
-                            <div class="pb-6 flex-1 flex justify-between items-center border-b border-slate-50 last:border-0 -mt-0.5">
-                                <div>
-                                    <h5 class="text-[11px] font-black text-slate-900 uppercase tracking-tight">${s.name}</h5>
-                                    <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${s.line} Line ${isFirst ? '· Boarding' : isLast ? '· Destination' : ''}</p>
-                                </div>
-                                <div class="text-right">
-                                    <span class="text-[10px] font-black text-slate-800">${s.reaching_at || '--'}</span>
-                                </div>
-                            </div>
-                        `;
-                        stopsList.appendChild(item);
-                    });
-                }
-
                 // Gemini Personalized Suggestion
                 if (window.GoogleGenAI && "{{ GEMINI_API_KEY }}") {
                     try {
@@ -4036,32 +3952,45 @@ HTML_TEMPLATE = """
                 const stopsCont = document.getElementById('route-stops-list');
                 if (stopsCont) {
                     stopsCont.innerHTML = '';
+                    
+                    // Show a header for the journey sequence
+                    const header = document.createElement('div');
+                    header.className = "mb-6 pb-4 border-b border-slate-100";
+                    header.innerHTML = `
+                        <h4 class="text-[10px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                            <i data-lucide="layers" size="14" class="text-blue-600"></i> Intermediate Station Sequence
+                        </h4>
+                        <p class="text-[8px] font-medium text-slate-400 mt-1 uppercase tracking-tight">Total of ${data.sequence.length} stations including transfers</p>
+                    `;
+                    stopsCont.appendChild(header);
+
                     data.sequence.forEach((s, idx) => {
                         const sDiv = document.createElement('div');
-                        sDiv.className = "flex items-center gap-4 group";
+                        sDiv.className = "flex items-start gap-4 group relative pb-6";
                         
                         const lineCol = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500';
-                        const dotSize = idx === 0 || idx === data.sequence.length - 1 ? 'w-4 h-4 ring-4' : 'w-2.5 h-2.5';
+                        const dotSize = idx === 0 || idx === data.sequence.length - 1 ? 'w-5 h-5 ring-4' : 'w-3 h-3';
                         const ringCol = s.line === 'Red' ? 'ring-red-100' : s.line === 'Blue' ? 'ring-blue-100' : 'ring-green-100';
 
                         sDiv.innerHTML = `
-                            <div class="relative flex flex-col items-center">
-                                <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-transform group-hover:scale-125"></div>
-                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-full w-0.5 h-4 ${lineCol} opacity-20"></div>` : ''}
-                            </div>
-                            <div class="flex-1">
-                                <div class="flex justify-between items-center">
-                                    <p class="text-xs font-black text-slate-800">${s.name}</p>
-                                    <span class="text-[9px] font-black text-slate-300 uppercase">${s.reaching_at}</span>
+                            <div class="relative flex flex-col items-center shrink-0 mt-1">
+                                <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-all group-hover:scale-125 flex items-center justify-center text-[6px] font-bold text-white">
+                                    ${idx === 0 ? 'S' : idx === data.sequence.length - 1 ? 'E' : ''}
                                 </div>
-                                <div class="flex items-center gap-2 mt-1">
-                                    <span class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">${s.line} Line</span>
-                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1" title="Est. 2 mins per station transition"><i data-lucide="clock" size="8"></i> ${s.segment_min}m est</span>` : ''}
-                                    ${s.segment_km > 0 ? `<span class="text-[8px] font-black text-slate-500 uppercase tracking-tighter">+${s.segment_km} KM</span>` : ''}
-                                    ${s.dist_km > 0 ? `<span class="text-[8px] font-black text-blue-600 uppercase tracking-tighter">Total: ${s.dist_km} KM</span>` : ''}
+                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-2 w-[2px] h-[calc(100%+1.5rem)] ${lineCol} opacity-20"></div>` : ''}
+                            </div>
+                            <div class="flex-1 -mt-0.5">
+                                <div class="flex justify-between items-center">
+                                    <p class="text-sm font-black ${idx === 0 || idx === data.sequence.length - 1 ? 'text-slate-900' : 'text-slate-700'} group-hover:text-blue-600 transition-colors">${s.name}</p>
+                                    <span class="text-[10px] font-black text-blue-600 tabular-nums">${s.reaching_at}</span>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 mt-1.5">
+                                    <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${lineCol}">${s.line} LINE</span>
+                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i data-lucide="clock" size="8"></i> ${s.segment_min}m</span>` : ''}
+                                    ${s.dist_km > 0 ? `<span class="text-[8px] font-black text-slate-400 uppercase tracking-tighter">${s.dist_km} KM</span>` : ''}
                                     ${s.predicted_load ? `
-                                        <div class="flex items-center gap-1.5 px-2 py-1 ${s.travel_difficulty === 'Smooth & Easy' ? 'bg-emerald-50 text-emerald-600' : s.travel_difficulty === 'Manageable Flux' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'} rounded-lg border border-current opacity-70">
-                                            <span class="text-[7px] font-black uppercase tracking-tighter">Ridership: ${s.travel_difficulty} [${s.predicted_load}]</span>
+                                        <div class="flex items-center gap-1 px-1.5 py-0.5 ${s.travel_difficulty === 'Smooth & Easy' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : s.travel_difficulty === 'Manageable Flux' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-orange-50 text-orange-600 border-orange-100'} rounded border group-hover:opacity-100 transition-opacity">
+                                            <span class="text-[7px] font-black uppercase tracking-tighter">${s.travel_difficulty}</span>
                                         </div>
                                     ` : ''}
                                 </div>
@@ -4205,45 +4134,28 @@ HTML_TEMPLATE = """
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const tabUrl = urlParams.get('tab');
-                const initialTab = "{{ initial_tab|default('home') }}";
-                
-                showTab(tabUrl || initialTab);
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabUrl = urlParams.get('tab');
+            const initialTab = "{{ initial_tab|default('home') }}";
+            
+            showTab(tabUrl || initialTab);
 
-                if (typeof lucide !== 'undefined') lucide.createIcons();
-                
-                const safeInit = (name, fn) => {
-                    try { fn(); } catch(e) { console.error(`${name} failed`, e); }
-                };
-
-                safeInit('Map', initLeafletMap);
-                safeInit('Geo', initGeo);
-                safeInit('Pickers', initPickers);
-                safeInit('Trains', updateLiveTrains);
-                safeInit('Feedback', loadFeedback);
-                safeInit('Tickets', renderTickets);
-                safeInit('Vectors', loadSavedVectors);
-                safeInit('AINotifs', startAINotifications);
-                
-                activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
-                trainAnimationId = requestAnimationFrame(animateTrains);
-                
-                setInterval(updateClock, 1000); 
-                updateClock();
-
-                // Set default time for planner
-                const timeNow = new Date();
-                const timeStr = timeNow.getHours().toString().padStart(2, '0') + ':' + timeNow.getMinutes().toString().padStart(2, '0');
-                const timeEl = document.getElementById('plan-time');
-                if (timeEl) timeEl.value = timeStr;
-            } catch (globalError) {
-                console.error("Critical System Boot Failure:", globalError);
-                // Ensure clock runs even if everything else dies
-                setInterval(updateClock, 1000);
-                updateClock();
-            }
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            
+            initLeafletMap();
+            initGeo(); 
+            initPickers(); 
+            updateLiveTrains(); 
+            loadFeedback(); 
+            renderTickets();
+            loadSavedVectors();
+            startAINotifications();
+            
+            activeUpdateInterval = setInterval(updateLiveTrains, 5000); 
+            trainAnimationId = requestAnimationFrame(animateTrains);
+            
+            setInterval(updateClock, 1000); 
+            updateClock();
         });
     </script>
 </body>
