@@ -610,6 +610,33 @@ def api_plan():
             'resume_time': '06:00 AM'
         })
 
+    # Identify line segments and transfers
+    segments = []
+    current_segment = []
+    
+    for i, s in enumerate(sequence):
+        if not current_segment:
+            current_segment.append(s)
+        else:
+            # If line changes, we have a transfer
+            if s['line'] != current_segment[-1]['line']:
+                # The previous station was the interchange arrival
+                segments.append({
+                    'line': current_segment[-1]['line'],
+                    'stations': [st['id'] for st in current_segment],
+                    'transfer_at': s['name'] # Transition happening at THIS station
+                })
+                current_segment = [s]
+            else:
+                current_segment.append(s)
+    
+    if current_segment:
+        segments.append({
+            'line': current_segment[-1]['line'],
+            'stations': [st['id'] for st in current_segment],
+            'transfer_at': None
+        })
+
     # Annotate sequence with reaching times and predict load for each station
     last_known_time = None
     if gtfs_boarding_time:
@@ -3781,10 +3808,10 @@ HTML_TEMPLATE = """
                     fluxCard.className = "col-span-full mb-6 bg-slate-900 p-8 rounded-[40px] text-white flex justify-between items-center relative overflow-hidden group shadow-2xl shadow-slate-200";
                     fluxCard.innerHTML = `
                         <div class="relative z-10">
-                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Selected Hub Intelligence</p>
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Platform Intelligence</p>
                             <div class="flex items-center gap-3 mb-4">
                                 <span class="text-3xl font-black italic tracking-tighter">${data.load || 30}% Intensity</span>
-                                <span class="px-3 py-1 bg-white/10 rounded-full text-[9px] font-black uppercase border border-white/20">${data.load < 40 ? 'Optimal Flux' : 'Active Flow'}</span>
+                                <span class="px-3 py-1 bg-white/10 rounded-full text-[9px] font-black uppercase border border-white/20">${targetStopName ? `Filtered: ${targetStopName}` : 'Optimal Flux'}</span>
                             </div>
                             <div class="flex items-center gap-6">
                                 <div class="flex items-center gap-2">
@@ -3807,10 +3834,10 @@ HTML_TEMPLATE = """
                     `;
                     list.appendChild(fluxCard);
 
-                    // Update header if we have a direction
+                    // Update header
                     const previewHeader = preview.querySelector('h4');
                     if (previewHeader) {
-                        previewHeader.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Next 10 Arrivals ${endName ? `Filtered for ${endName}` : 'at Station'}`;
+                        previewHeader.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Next 10 Arrivals ${targetStopName ? `Filtered for ${targetStopName}` : 'at Station'}`;
                     }
 
                     data.upcoming.forEach(t => {
