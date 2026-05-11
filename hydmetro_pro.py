@@ -2759,6 +2759,7 @@ HTML_TEMPLATE = """
                 id: 'T-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
                 ...tripData,
                 timestamp: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                issuedAtISO: new Date().toISOString(),
                 status: 'ACTIVE'
             };
 
@@ -2771,9 +2772,11 @@ HTML_TEMPLATE = """
             renderTickets();
             
             // Animation effect
-            const container = document.getElementById('active-ticket-container');
-            container.classList.add('animate-bounce');
-            setTimeout(() => container.classList.remove('animate-bounce'), 1000);
+            const container = document.getElementById('unified-tickets-list');
+            if (container) {
+                container.classList.add('animate-in', 'slide-in-from-bottom-4');
+                setTimeout(() => container.classList.remove('animate-in', 'slide-in-from-bottom-4'), 1000);
+            }
         }
 
         function renderTickets() {
@@ -2783,24 +2786,28 @@ HTML_TEMPLATE = """
             
             if (listCont) listCont.innerHTML = '';
 
+            const activeTickets = history.filter(t => t.status === 'ACTIVE');
+            const pastTickets = history.filter(t => t.status !== 'ACTIVE').sort((a,b) => new Date(b.issuedAtISO || 0) - new Date(a.issuedAtISO || 0));
+
             if (history.length === 0) {
                 if (historyEmpty) historyEmpty.classList.remove('hidden');
                 return;
             }
             if (historyEmpty) historyEmpty.classList.add('hidden');
 
-            const sortedHistory = [...history].sort((a,b) => {
-                if (a.status === 'ACTIVE' && b.status !== 'ACTIVE') return -1;
-                if (b.status === 'ACTIVE' && a.status !== 'ACTIVE') return 1;
-                return b.id - a.id;
-            });
+            // Render Active Tickets Section
+            if (activeTickets.length > 0) {
+                const activeHeader = document.createElement('div');
+                activeHeader.className = "flex items-center gap-3 mb-6";
+                activeHeader.innerHTML = `
+                    <div class="w-1.5 h-6 bg-emerald-500 rounded-full"></div>
+                    <h3 class="text-xs font-black uppercase tracking-widest text-slate-500">Active Boarding Tokens</h3>
+                `;
+                listCont.appendChild(activeHeader);
 
-            sortedHistory.forEach(ticket => {
-                const isActive = ticket.status === 'ACTIVE';
-                const lineCol = ticket.line === 'Red' ? '#ef4444' : ticket.line === 'Blue' ? '#3b82f6' : '#10b981';
-                const card = document.createElement('div');
-                
-                if (isActive) {
+                activeTickets.forEach(ticket => {
+                    const lineCol = ticket.line === 'Red' ? '#ef4444' : ticket.line === 'Blue' ? '#3b82f6' : '#10b981';
+                    const card = document.createElement('div');
                     card.className = "bg-slate-900 text-white p-0 rounded-[40px] border border-slate-800 shadow-2xl relative overflow-hidden group mb-10";
                     card.innerHTML = `
                         <div class="relative p-10 overflow-hidden">
@@ -2826,14 +2833,14 @@ HTML_TEMPLATE = """
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-11 gap-6 items-center mb-10 relative z-10">
-                                <div class="md:col-span-5 text-left">
+                                <div class="md:col-span-12 lg:col-span-5 text-left">
                                     <p class="text-[9px] font-black uppercase text-white/30 tracking-widest mb-2">Starting Node</p>
                                     <p class="text-2xl font-black">${ticket.from}</p>
                                 </div>
-                                <div class="md:col-span-1 flex justify-center py-4 md:py-0">
+                                <div class="md:col-span-12 lg:col-span-1 flex justify-center py-4 md:py-0">
                                     <i data-lucide="arrow-right-circle" class="text-white/20" size="32"></i>
                                 </div>
-                                <div class="md:col-span-5 text-right">
+                                <div class="md:col-span-12 lg:col-span-5 text-right">
                                     <p class="text-[9px] font-black uppercase text-white/30 tracking-widest mb-2">Target Node</p>
                                     <p class="text-2xl font-black">${ticket.to}</p>
                                 </div>
@@ -2847,26 +2854,44 @@ HTML_TEMPLATE = """
                                     </div>
                                     <div>
                                         <p class="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Issue Time</p>
-                                        <p class="text-xl font-black tabular-nums">${new Date(ticket.id).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                                        <p class="text-xl font-black tabular-nums">${new Date(ticket.issuedAtISO || Date.now()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
                                     </div>
                                 </div>
                                 <div class="bg-white p-4 rounded-3xl" id="qrcode-${ticket.id}"></div>
                             </div>
 
-                            <button onclick="completeTrip(${ticket.id})" class="w-full py-6 bg-white text-slate-900 rounded-[30px] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-50 transition-all flex items-center justify-center gap-3 mt-4">
+                            <button onclick="completeTrip('${ticket.id}')" class="w-full py-6 bg-white text-slate-900 rounded-[30px] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-50 transition-all flex items-center justify-center gap-3 mt-4">
                                 <i data-lucide="check-circle" size="16"></i> End Journey & Verify
                             </button>
                         </div>
                     `;
+                    listCont.appendChild(card);
                     setTimeout(() => {
-                        new QRCode(document.getElementById(`qrcode-${ticket.id}`), {
-                            text: `METRO-${ticket.id}-${ticket.from}-${ticket.to}`,
-                            width: 100, height: 100,
-                            colorDark: "#0f172a", colorLight: "#ffffff",
-                            correctLevel: QRCode.CorrectLevel.H
-                        });
+                        const qrEl = document.getElementById(`qrcode-${ticket.id}`);
+                        if (qrEl) {
+                            new QRCode(qrEl, {
+                                text: `METRO-${ticket.id}-${ticket.from}-${ticket.to}`,
+                                width: 100, height: 100,
+                                colorDark: "#0f172a", colorLight: "#ffffff",
+                                correctLevel: QRCode.CorrectLevel.H
+                            });
+                        }
                     }, 100);
-                } else {
+                });
+            }
+
+            // Render Past Journeys Section
+            if (pastTickets.length > 0) {
+                const pastHeader = document.createElement('div');
+                pastHeader.className = "flex items-center gap-3 mb-6 mt-12";
+                pastHeader.innerHTML = `
+                    <div class="w-1.5 h-6 bg-slate-300 rounded-full"></div>
+                    <h3 class="text-xs font-black uppercase tracking-widest text-slate-500">Journey History Ledger</h3>
+                `;
+                listCont.appendChild(pastHeader);
+
+                pastTickets.forEach(ticket => {
+                    const card = document.createElement('div');
                     card.className = "bg-white p-8 rounded-[40px] border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between group hover:border-slate-300 transition-all shadow-sm gap-6 mb-4";
                     card.innerHTML = `
                         <div class="flex items-center gap-8">
@@ -2880,7 +2905,7 @@ HTML_TEMPLATE = """
                                     <h5 class="text-xl font-black text-slate-900 tracking-tighter">${ticket.to}</h5>
                                 </div>
                                 <div class="flex items-center gap-4 text-slate-400">
-                                    <p class="text-[9px] font-black uppercase tracking-widest">${new Date(ticket.id).toLocaleDateString('en-GB')}</p>
+                                    <p class="text-[9px] font-black uppercase tracking-widest">${new Date(ticket.issuedAtISO || Date.now()).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'})}</p>
                                     <span class="w-1 h-1 rounded-full bg-slate-200"></span>
                                     <p class="text-[9px] font-black uppercase tracking-widest text-slate-500">₹${ticket.fare} Finalized</p>
                                 </div>
@@ -2893,9 +2918,9 @@ HTML_TEMPLATE = """
                             </div>
                         </div>
                     `;
-                }
-                listCont.appendChild(card);
-            });
+                    listCont.appendChild(card);
+                });
+            }
             lucide.createIcons();
         }
 
