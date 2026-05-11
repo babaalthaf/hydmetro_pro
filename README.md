@@ -298,8 +298,3 @@ Application deployed on Render Cloud:
 
 # ⚙️ Installation
 
-## 1️⃣ Clone Repository
-
-```bash
-git clone https://github.com/your-username/hydmetro-pro.git
-cd hydmetro-pro
