@@ -367,6 +367,18 @@ def haversine(lat1, lon1, lat2, lon2):
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * 2 * math.asin(math.sqrt(a))
 
+def get_fare_from_matrix(dist):
+    if dist <= 2: return 12
+    if dist <= 4: return 18
+    if dist <= 6: return 30
+    if dist <= 9: return 40
+    if dist <= 12: return 50
+    if dist <= 15: return 55
+    if dist <= 18: return 60
+    if dist <= 21: return 66
+    if dist <= 24: return 70
+    return 75
+
 FEEDBACK_CLOUD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'feedback_cloud.json')
 
 def save_feedback_to_cloud(feedback_data):
@@ -527,20 +539,24 @@ def api_weather():
 def api_plan():
     data = request.json
     start_id, end_id = data['from'], data['to']
+    user_prefs = data.get('prefs', {}) # {'comfort': bool, 'speed': bool, 'scenic': bool}
     now = get_app_now()
     
-    # BFS find path
+    # BFS find multiple paths (up to 3 distinct paths to provide alternatives)
+    all_paths = []
     queue = [(start_id, [start_id])]
-    visited = {start_id}
-    path = []
+    
     if start_id == end_id:
-        path = [start_id]
+        all_paths = [[start_id]]
     else:
-        while queue:
+        max_results = 3
+        while queue and len(all_paths) < max_results:
             curr, p = queue.pop(0)
             if curr == end_id:
-                path = p
-                break
+                all_paths.append(p)
+                continue
+            if len(p) > 25: continue
+            
             neighbors = []
             for line in CONNECTIONS.values():
                 if curr in line:
@@ -551,490 +567,155 @@ def api_plan():
             if c_name:
                 for s in STATIONS_LIST:
                     if s['name'] == c_name and s['id'] != curr: neighbors.append(s['id'])
+            
             for n in neighbors:
-                if n not in visited:
-                    visited.add(n)
+                if n not in p:
                     queue.append((n, p + [n]))
-    
-    sequence = [next(s for s in STATIONS_LIST if s['id'] == sid) for sid in path]
-    duration = max(2, len(sequence) * 2) if sequence else 0
-    total_stops = len(sequence) - 1 if len(sequence) > 1 else max(0, len(sequence))
-    
-    # Synchronize Arrival Time with GTFS schedule
-    now_str = now.strftime('%H:%M:%S')
-    start_id = sequence[0]['id']
-    end_id = sequence[-1]['id'] if sequence else None
-    
-    gtfs_arrival_time = None
-    gtfs_boarding_time = None
-    chosen_trip_id = None
-    stop_arrival_times = {} 
-    
-    try:
-        # Find the next available trip at start station from indexed data
-        possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_id, []) if t['arrival_time'] > now_str]
+
+    def get_route_details(path_ids):
+        # We use copies to avoid mutating global station objects
+        sequence = []
+        for sid in path_ids:
+            s_orig = next(s for s in STATIONS_LIST if s['id'] == sid)
+            sequence.append(s_orig.copy())
+            
+        start_sid = sequence[0]['id']
+        end_sid = sequence[-1]['id']
         
-        for pt in possible_start_trips[:10]: # Check first 10 upcoming as requested
-            trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
-            # Check if this trip eventually reaches the end_id
-            destination_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
-            if destination_stop:
-                # Basic check: destination must be after start
-                if destination_stop['arrival_time'] > pt['arrival_time']:
-                    gtfs_arrival_time = destination_stop['arrival_time']
+        gtfs_boarding_time = None
+        chosen_trip_id = None
+        stop_arrival_times = {} 
+        
+        try:
+            possible_start_trips = [t for t in _GTFS_STATION_INDEX.get(start_sid, []) if t['arrival_time'] > now.strftime('%H:%M:%S')]
+            for pt in possible_start_trips[:10]:
+                trip_data = _GTFS_INDEX.get(pt['trip_id'], [])
+                destination_stop = next((t for t in trip_data if t['station_id'] == end_sid), None)
+                if destination_stop and destination_stop['arrival_time'] > pt['arrival_time']:
                     gtfs_boarding_time = pt['arrival_time']
                     chosen_trip_id = pt['trip_id']
-                    
-                    # Map all stop times for this trip
                     for td in trip_data:
                         stop_arrival_times[td['station_id']] = td['arrival_time']
                     break
-            else:
-                if not gtfs_boarding_time:
-                    gtfs_boarding_time = pt['arrival_time']
-                    chosen_trip_id = pt['trip_id']
-                    for td in trip_data:
-                        stop_arrival_times[td['station_id']] = td['arrival_time']
-    except Exception as e:
-        print(f"GTFS Planner Indexed Sync Error: {e}")
+        except: pass
+        if not gtfs_boarding_time: gtfs_boarding_time = now.strftime('%H:%M:%S')
 
-    if not gtfs_boarding_time:
-        # Check if outside hours (typical Hyd Metro: 6 AM to 11 PM)
-        is_closed = False
-        if now.hour < 6 or now.hour >= 23:
-            is_closed = True
-        
-        return jsonify({
-            'status': 'closed' if is_closed else 'no_trains',
-            'message': 'Metro services are currently closed. They will resume at 06:00 AM.' if is_closed else 'No trains found for this route at this time.',
-            'resume_time': '06:00 AM'
-        })
-
-    # Identify line segments and transfers
-    segments = []
-    current_segment = []
-    
-    for i, s in enumerate(sequence):
-        if not current_segment:
-            current_segment.append(s)
-        else:
-            # If line changes, we have a transfer
-            if s['line'] != current_segment[-1]['line']:
-                # The previous station was the interchange arrival
-                segments.append({
-                    'line': current_segment[-1]['line'],
-                    'stations': [st['id'] for st in current_segment],
-                    'transfer_at': s['name'] # Transition happening at THIS station
-                })
-                current_segment = [s]
-            else:
-                current_segment.append(s)
-    
-    if current_segment:
-        segments.append({
-            'line': current_segment[-1]['line'],
-            'stations': [st['id'] for st in current_segment],
-            'transfer_at': None
-        })
-
-    # Annotate sequence with reaching times and predict load for each station
-    last_known_time = None
-    if gtfs_boarding_time:
-        h, m, s_ = map(int, gtfs_boarding_time.split(':'))
-        last_known_time = now.replace(hour=h, minute=m, second=s_)
-
-    total_duration_calculated = 0
-    prev_dt = None
-    if gtfs_boarding_time:
+        guides = []
+        interchanges = 0
+        total_duration_calculated = 0
+        max_load = 0
+        prev_dt = None
         try:
             h, m, s_ = map(int, gtfs_boarding_time.split(':'))
             prev_dt = now.replace(hour=h, minute=m, second=s_, microsecond=0)
         except: pass
 
-    for i, s in enumerate(sequence):
-        s['reaching_at_raw'] = stop_arrival_times.get(s['id'])
-        reach_hour = now.hour
-        current_dt = None
-        
-        if s['reaching_at_raw']:
-            try:
-                h, m, s_ = map(int, s['reaching_at_raw'].split(':'))
-                reach_hour = h
-                current_dt = now.replace(hour=h, minute=m, second=s_, microsecond=0)
-                s['reaching_at'] = current_dt.strftime('%I:%M %p')
-            except: 
-                s['reaching_at'] = s['reaching_at_raw']
-        else:
-            # Fallback estimation for missing GTFS stops (common in interchanges)
-            if prev_dt:
-                # Add 2 minutes per stop if we don't have exact GTFS time
-                current_dt = prev_dt + timedelta(minutes=2)
-                s['reaching_at'] = current_dt.strftime('%I:%M %p')
-                reach_hour = current_dt.hour
-            else:
-                s['reaching_at'] = "--:--"
-        
-        # Calculate segment time
-        if i == 0:
-            s['segment_min'] = 0
-        elif prev_dt and current_dt:
-            diff = (current_dt - prev_dt).total_seconds() / 60
-            s['segment_min'] = round(max(1, diff), 1)
-            total_duration_calculated += s['segment_min']
-        else:
-            s['segment_min'] = 2 # Default fallback
-            total_duration_calculated += 2
-
-        prev_dt = current_dt
-        
-        # Add AI Predicted Load for every stop
-        is_weekend = now.weekday() >= 5
-        weather = get_live_weather(lat=s['lat'], lng=s['lng'])
-        load_label, load_pct_val = predict_load_ai(s['name'], reach_hour, is_weekend=is_weekend, weather=weather)
-        s['predicted_load'] = load_label
-        
-        # Difficulty descriptive label
-        if load_pct_val < 30:
-            s['travel_difficulty'] = "Smooth & Easy"
-        elif load_pct_val < 60:
-            s['travel_difficulty'] = "Manageable Flux"
-        elif load_pct_val < 85:
-            s['travel_difficulty'] = "Active Rush"
-        else:
-            s['travel_difficulty'] = "Intense Density"
-            
-        s['predicted_hour'] = reach_hour
-
-    # Calculate Total Distance for Precise Fare Prediction
-    total_km = 0
-    for i in range(len(sequence)):
-        if i == 0:
-            sequence[i]['segment_km'] = 0
-            sequence[i]['dist_km'] = 0
-        else:
-            s1 = sequence[i-1]
-            s2 = sequence[i]
-            d = haversine(s1['lat'], s1['lng'], s2['lat'], s2['lng'])
-            total_km += d
-            sequence[i]['segment_km'] = round(d, 2)
-            sequence[i]['dist_km'] = round(total_km, 2)
-    
-    # Official Fare Logic (2026 Updated Chart)
-    def get_fare_from_matrix(dist):
-        if dist <= 2: return 12
-        if dist <= 4: return 18
-        if dist <= 6: return 30
-        if dist <= 9: return 40
-        if dist <= 12: return 50
-        if dist <= 15: return 55
-        if dist <= 18: return 60
-        if dist <= 21: return 66
-        if dist <= 24: return 70
-        return 75
-
-    calculated_fare = get_fare_from_matrix(total_km)
-    digital_fare = round(calculated_fare * 0.9, 1) # 10% Smart Card Discount
-    
-    # Use the more accurate calculated duration from segments
-    duration = int(total_duration_calculated)
-    if duration <= 0:
-        duration = len(sequence) * 2
-    
-    # AI Recommendation logic
-    start_station_name = sequence[0]['name']
-    weather = get_live_weather(lat=sequence[0]['lat'], lng=sequence[0]['lng'])
-    is_weekend = now.weekday() >= 5
-    load_val, _ = predict_load_ai(start_station_name, now.hour, is_weekend=is_weekend, weather=weather)
-    
-    # NEW: Numerical Load and Peak Intensity Math
-    load_pct = 35 # Base
-    if (7 <= now.hour <= 10 or 17 <= now.hour <= 21): load_pct += 45
-    if start_station_name in ['HITEC City', 'Madhapur', 'Raidurg']: load_pct += 15
-    load_pct = min(99.4, load_pct + random.uniform(-3, 3))
-    
-    peak_intensity = 0
-    if (7 <= now.hour <= 10):
-        # Morning peak ramps up from 7 to 9, drops at 10
-        dist = abs(now.hour - 8.5)
-        peak_intensity = 100 - (dist * 30)
-    elif (17 <= now.hour <= 21):
-        # Evening peak peak at 19:00
-        dist = abs(now.hour - 19)
-        peak_intensity = 100 - (dist * 20)
-    peak_intensity = round(max(0, min(100, peak_intensity)), 1)
-
-    # INTERCHANGE & GUIDE LOGIC
-    guides = []
-    # Pre-parse reaching times for connections
-    reaching_times_map = {s['id']: stop_arrival_times.get(s['id']) for s in sequence}
-
-    for i in range(len(path) - 1):
-        s1 = next(s for s in STATIONS_LIST if s['id'] == path[i])
-        s2 = next(s for s in STATIONS_LIST if s['id'] == path[i+1])
-        name1 = s1.get('name_alias', s1['name'])
-        name2 = s2.get('name_alias', s2['name'])
-        
-        if name1 == name2 and s1['id'] != s2['id']:
-            next_sid = path[i+2] if i+2 < len(path) else None
-            platform = "?"
-            guide = f"Transfer at {name1}"
-            
-            # Connection Analytics
-            reaching_at_raw = reaching_times_map.get(s1['id'])
-            connecting_trains = []
-            reaching_at_display = "--:--"
-            
+        for i, s in enumerate(sequence):
+            reaching_at_raw = stop_arrival_times.get(s['id'])
+            current_dt = None
+            reach_hour = now.hour
             if reaching_at_raw:
                 try:
-                    rh, rm, rs = map(int, reaching_at_raw.split(':'))
-                    reach_dt = now.replace(hour=rh, minute=rm, second=rs, microsecond=0)
-                    reaching_at_display = reach_dt.strftime('%I:%M %p')
-                    
-                    # Next 1 hour from reaching
-                    reach_plus_hour = reach_dt + timedelta(hours=1)
-                    rph_str = reach_plus_hour.strftime('%H:%M:%S')
-                    
-                    # Find other lines at this station
-                    other_ids = [s['id'] for s in STATIONS_LIST if (s.get('name_alias') == name1 or s['name'] == name1) and s['line'] != s1['line']]
-                    trips = ensure_gtfs()
-                    
-                    for row in trips:
-                        if row['station_id'] in other_ids and reaching_at_raw < row['arrival_time'] < rph_str:
-                            t_copy = row.copy()
-                            th, tm, ts = map(int, t_copy['arrival_time'].split(':'))
-                            t_dt = now.replace(hour=th, minute=tm, second=ts)
-                            t_copy['arrival_time_12'] = t_dt.strftime('%I:%M %p')
-                            t_copy['wait_mins'] = int((t_dt - reach_dt).total_seconds() // 60)
-                            connecting_trains.append(t_copy)
-                            if len(connecting_trains) >= 3: break
-                except: pass
-
-            if next_sid:
-                next_s = next(s for s in STATIONS_LIST if s['id'] == next_sid)
-                i_data = INTERCHANGE_DATA.get(name1, {})
-                platform = "?"
-                steps = i_data.get('guidance', [])
-                time_est = i_data.get('time_estimate', '2-3 mins')
-
-                if name1 == 'Ameerpet':
-                    if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R',''))
-                        platform = "1 (Towards LB Nagar)" if idx > 11 else "2 (Towards Miyapur)"
-                        if s1['line'] == 'Blue': guide = "Exit Blue Line (Level 1). Take stairs/escalator DOWN to Red Line level. Follow signs for Platform 1/2."
-                    elif next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B',''))
-                        platform = "3 (Towards Nagole)" if idx > 8 else "4 (Towards Raidurg)"
-                        if s1['line'] == 'Red': guide = "Exit Red Line. Take stairs/escalator UP to Blue Line (Level 1). Follow signs for Platform 3/4."
-                elif name1 == 'MG Bus Station':
-                    if next_s['line'] == 'Red':
-                        idx = int(next_s['id'].replace('R',''))
-                        platform = "1 (Towards LB Nagar)" if idx > 20 else "2 (Towards Miyapur)"
-                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow 'Red Line' signs. Take ESCALATOR UP to Red Line Level."
-                    elif next_s['line'] == 'Green':
-                        platform = "3 (Towards JBS Parade Ground)"
-                        if s1['line'] == 'Red': guide = "Exit Red Line platform, follow 'Green Line' signs. Take ESCALATOR DOWN to Green Line Level."
-                elif name1 == 'JBS Parade Ground':
-                    if next_s['line'] == 'Blue':
-                        idx = int(next_s['id'].replace('B',''))
-                        platform = "3 (Towards Nagole)" if idx > 13 else "4 (Towards Raidurg)"
-                        if s1['line'] == 'Green': guide = "Exit Green Line platform, follow Blue Line transfer signs. Take stairs to Platform level."
-                    elif next_s['line'] == 'Green':
-                        idx = int(next_s['id'].replace('G',''))
-                        platform = "1 (Towards MG Bus Station)" if idx > 3 else "2 (Towards JBS Parade Ground)"
-                        if s1['line'] == 'Blue': guide = "Exit Blue Line platform, follow Green Line transfer signs. Take ESCALATOR DOWN to reach Green Line Platform Level."
+                    h, m, s_ = map(int, reaching_at_raw.split(':'))
+                    reach_hour = h
+                    current_dt = now.replace(hour=h, minute=m, second=s_)
+                    s['reaching_at'] = current_dt.strftime('%I:%M %p')
+                except:
+                    s['reaching_at'] = reaching_at_raw
+            else:
+                if prev_dt:
+                    current_dt = prev_dt + timedelta(minutes=2)
+                    s['reaching_at'] = current_dt.strftime('%I:%M %p')
+                    reach_hour = current_dt.hour
+                else: s['reaching_at'] = "--:--"
             
-                guides.append({
-                    'station': name1, 
-                    'platform': platform, 
-                    'text': guide, 
-                    'steps': steps,
-                    'time_estimate': time_est,
-                    'reaching_at': reaching_at_display, 
-                    'connections': connecting_trains
-                })
+            if i > 0:
+                if prev_dt and current_dt:
+                    total_duration_calculated += max(1, (current_dt - prev_dt).total_seconds() / 60)
+                else: total_duration_calculated += 2
 
-    # PROJECTION METRICS
-    is_peak = "Peak Hour" if (7 <= now.hour <= 10 or 17 <= now.hour <= 21) else "Off-Peak"
-    is_it_hub = "High" if any(n in [s['name'] for s in sequence] for n in ['HITEC City', 'Raidurg', 'Madhapur']) else "Normal"
-    
-    # Environmental Analytics
-    co2_saved = round(total_km * 0.12, 2) # kg CO2
-    calories = int(total_km * 12 + len(guides) * 25) # Estimated effort
-    trees_saved = round(total_km * 0.05, 3)
+            # Load Prediction
+            is_wknd = now.weekday() >= 5
+            loc_weather = get_live_weather(lat=s['lat'], lng=s['lng'])
+            _, load_pct = predict_load_ai(s['name'], reach_hour, is_weekend=is_wknd, weather=loc_weather)
+            s['predicted_load'] = load_pct
+            max_load = max(max_load, load_pct)
+            
+            # Guides
+            if i < len(path_ids) - 1:
+                s1 = sequence[i]
+                s2 = sequence[i+1]
+                if s1['name'] == s2['name'] and s1['id'] != s2['id']:
+                    interchanges += 1
+                    i_data = INTERCHANGE_DATA.get(s1['name'], {})
+                    guides.append({
+                        'station': s1['name'],
+                        'platform': "Interchange Hub",
+                        'text': i_data.get('guidance', ["Follow transfer signs"])[0],
+                        'steps': i_data.get('guidance', []),
+                        'time_estimate': i_data.get('time_estimate', '5 mins'),
+                        'reaching_at': s['reaching_at']
+                    })
+            prev_dt = current_dt
 
-    weather_advice = " AC cooling optimized for intense heat." if weather.get('temp', 30) > 35 else \
-                     " Rainy conditions detected; transit via tunnels recommended." if "Rain" in weather.get('condition', '') else \
-                     " Clear skies for a smooth commute." if "Sunny" in weather.get('condition', '') or "Clear" in weather.get('condition', '') else ""
+        total_km = 0
+        for i in range(1, len(sequence)):
+            total_km += haversine(sequence[i-1]['lat'], sequence[i-1]['lng'], sequence[i]['lat'], sequence[i]['lng'])
 
-    recommendation = ("Optimal conditions. Low crowd density detected." if load_val == "Low" else \
-                     "Fair volume. Seat likely available for your journey." if load_val == "Medium" else \
-                     "Moderate volume. Manageable rush." if load_val == "M-High" else \
-                     "Peak congestion. AI suggests waiting for dip.") + weather_advice
+        duration = int(total_duration_calculated) if total_duration_calculated > 0 else len(sequence)*2
+        fare = get_fare_from_matrix(total_km)
+        
+        # Personalized Advices logic
+        advices = []
+        if max_load > 70:
+            advices.append({'type': 'congestion', 'title': 'High Density Alert', 'text': 'Severe congestion predicted. Suggest first coach for less crowding.', 'icon': 'users'})
+        if interchanges > 1:
+            advices.append({'type': 'itinerary', 'title': 'Multi-Hub Route', 'text': 'Multiple transfers required. Visual guides active for platforms.', 'icon': 'shuffle'})
+        if now.hour > 21:
+            advices.append({'type': 'time', 'title': 'Night Protocol', 'text': 'Lower frequency service active. Stay near station security.', 'icon': 'moon'})
 
-    # Personalized Recommendations List
-    personalized_advices = []
-    
-    # Enhanced AI Suggestion Logic based on Crowd & Weather
-    crowd_context = "higher" if load_pct > 65 else "moderate" if load_pct > 40 else "low"
-    interchange_hit = next((s['name'] for s in sequence if s['name'] in INTERCHANGE_DATA), None)
-    
-    if interchange_hit and load_pct > 70:
-        personalized_advices.append({
-            'type': 'ai-insight',
-            'title': 'AI Insight',
-            'text': f"Expect {crowd_context} crowds at {interchange_hit} due to peak hour rush. Consider an alternate platform if available for faster boarding.",
-            'icon': 'brain'
-        })
-    elif weather.get('temp', 30) > 38:
-        personalized_advices.append({
-            'type': 'weather',
-            'title': 'Weather Alert',
-            'text': f"Severe heat detected ({weather.get('temp')}°C). Hydrating at {start_station_name} before boarding is strongly recommended.",
-            'icon': 'sun'
-        })
-    
-    if load_pct > 75:
-        personalized_advices.append({
-            'type': 'congestion',
-            'title': 'High Density Alert',
-            'text': 'Severe congestion predicted. Suggest taking a 15-min earlier train for a guaranteed seat.',
-            'icon': 'users'
-        })
-    elif load_pct > 50:
-        personalized_advices.append({
-            'type': 'congestion',
-            'title': 'Moderate Flux',
-            'text': 'Steady boarding volume. Board mid-train coaches for less crowding.',
-            'icon': 'info'
-        })
-
-    if weather.get('temp', 30) > 36:
-        personalized_advices.append({
-            'type': 'weather',
-            'title': 'Heat Protocol',
-            'text': 'High external temperatures. Station cooling optimized; stay hydrated at platform kiosks.',
-            'icon': 'thermometer'
-        })
-    elif "Rain" in weather.get('condition', ''):
-        personalized_advices.append({
-            'type': 'weather',
-            'title': 'Rain Advisory',
-            'text': 'Slippery floors possible at terminal exits. Multi-modal links might be delayed.',
-            'icon': 'cloud-rain'
-        })
-    
-    if is_peak == "Peak Hour" and any(n in [s['name'] for s in sequence] for n in ['HITEC City', 'Madhapur', 'Raidurg']):
-         personalized_advices.append({
-            'type': 'it-hub',
-            'title': 'Tech Hub Rush',
-            'text': 'Heavy IT corridor movement detected. Use the dedicated express entry for faster access.',
-            'icon': 'zap'
-        })
-
-    # Time of Day AI Insights
-    if 5 <= now.hour < 8:
-        personalized_advices.append({
-            'type': 'time',
-            'title': 'Early Bird Advantage',
-            'text': 'Great timing! Early morning vectors are typically 40% less crowded. Enjoy a serene path.',
-            'icon': 'sunrise'
-        })
-    elif 21 <= now.hour <= 23:
-        personalized_advices.append({
-            'type': 'time',
-            'title': 'Night Protocol',
-            'text': 'Late-night service frequency is lower. AI suggests moving towards the first coach for safety and visibility.',
-            'icon': 'moon'
-        })
-    elif 12 <= now.hour <= 15:
-         personalized_advices.append({
-            'type': 'time',
-            'title': 'Mid-day Lull',
-            'text': 'Off-peak window detected. Energy-efficient AI cooling is active at stations. High chance of seating.',
-            'icon': 'coffee'
-        })
-
-    # User Request: Upcoming trains for next 1 hour from source
-    trips = ensure_gtfs()
-    one_hour_later = now + timedelta(hours=1)
-    now_str = now.strftime('%H:%M:%S')
-    oh_str = one_hour_later.strftime('%H:%M:%S')
-    
-    upcoming_hour = []
-    for row in trips:
-        if row['station_id'] == start_id and now_str < row['arrival_time'] < oh_str:
-            try:
-                row_copy = row.copy()
-                ah, am, as_ = map(int, row['arrival_time'].split(':'))
-                arrival_dt = now.replace(hour=ah, minute=am, second=as_, microsecond=0)
-                diff = (arrival_dt - now).total_seconds()
-                row_copy['eta'] = f"{int(diff // 60):02d}:{int(diff % 60):02d}"
-                
-                # Calculate estimated reach time for this specific trip
-                trip_data = [t for t in trips if t['trip_id'] == row['trip_id']]
-                dest_stop = next((t for t in trip_data if t['station_id'] == end_id), None)
-                if dest_stop:
-                    # Basic 12h conversion for dest arrival
-                    dh, dm, ds = map(int, dest_stop['arrival_time'].split(':'))
-                    row_copy['est_reach'] = now.replace(hour=dh, minute=dm, second=ds).strftime('%I:%M %p')
-                else:
-                    # Fallback if trip doesn't reach dest (unlikely with valid route)
-                    row_copy['est_reach'] = (arrival_dt + timedelta(minutes=duration)).strftime('%I:%M %p')
-
-                upcoming_hour.append(row_copy)
-            except: continue
-            if len(upcoming_hour) >= 15: break
-
-    # Convert boarding & arrival to 12-hour format
-    boarding_at_source = "--:--"
-    if gtfs_boarding_time:
-        try:
-            h, m, s = map(int, gtfs_boarding_time.split(':'))
-            boarding_at_source = now.replace(hour=h, minute=m, second=s).strftime('%I:%M %p')
-        except:
-            boarding_at_source = gtfs_boarding_time
-
-    if gtfs_arrival_time:
-        try:
-            h, m, s = map(int, gtfs_arrival_time.split(':'))
-            arrival_at_destination = now.replace(hour=h, minute=m, second=s).strftime('%I:%M %p')
-        except:
-            arrival_at_destination = gtfs_arrival_time
-    else:
-        arrival_at_destination = (now + timedelta(minutes=duration)).strftime('%I:%M %p')
-
-    # Convert upcoming_hour to 12-hour
-    for u in upcoming_hour:
-        try:
-            h, m, s = map(int, u['arrival_time'].split(':'))
-            u['arrival_time'] = now.replace(hour=h, minute=m, second=s).strftime('%I:%M %p')
-        except: pass
-
-    return jsonify({
-        'sequence': sequence,
-        'upcoming_hour': upcoming_hour,
-        'duration': duration,
-        'boarding_at_source': boarding_at_source,
-        'arrival_at_dest': arrival_at_destination,
-        'total_stops': len(sequence),
-        'total_km': round(total_km, 2),
-        'fare': calculated_fare,
-        'digital_fare': digital_fare,
-        'recommendation': recommendation,
-        'personalized_advices': personalized_advices,
-        'load': round(load_pct, 1),
-        'peak_intensity': peak_intensity,
-        'guides': guides,
-        'eco': {
-            'co2': co2_saved,
-            'calories': calories,
-            'trees': trees_saved
-        },
-        'metrics': {
-            'peak': is_peak,
-            'it_hub': is_it_hub,
-            'fare_stable': True
+        return {
+            'sequence': sequence,
+            'duration': duration,
+            'total_km': round(total_km, 2),
+            'fare': fare,
+            'load': round(max_load, 1),
+            'interchanges': interchanges,
+            'guides': guides,
+            'chosen_trip_id': chosen_trip_id,
+            'personalized_advices': advices,
+            'eco': {
+                'co2': round(total_km * 0.15, 2),
+                'trees': round(total_km * 0.02, 3),
+                'calories': int(total_km * 12)
+            }
         }
+
+    results = []
+    for p_ids in all_paths:
+        try:
+            results.append(get_route_details(p_ids))
+        except Exception as e:
+            print(f"Error processing path: {e}")
+
+    if not results:
+        return jsonify({'status': 'no_trains', 'message': 'No viable vectors found for this trajectory.'})
+
+    # Sort based on user preference if provided
+    if user_prefs.get('comfort'):
+        results.sort(key=lambda x: x['load'])
+    elif user_prefs.get('speed'):
+        results.sort(key=lambda x: x['duration'])
+    
+    # Enrichment for primary
+    primary = results[0]
+    primary['peak_intensity'] = round(35 + (30 if (7<=now.hour<=10 or 17<=now.hour<=21) else 0), 1)
+    primary['recommendation'] = "Optimal Neural Trajectory"
+    
+    return jsonify({
+        'status': 'success',
+        'primary': primary,
+        'alternatives': results[1:] if len(results) > 1 else []
     })
 
 @app.route('/api/live-map')
@@ -1281,6 +962,26 @@ HTML_TEMPLATE = """
         @keyframes sonar {
             0% { r: 6; opacity: 0.8; }
             100% { r: 24; opacity: 0; }
+        }
+
+        .highlighted-train-halo {
+            pointer-events: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, rgba(59, 130, 246, 0) 70%);
+            border-radius: 50%;
+            z-index: -1;
+            animation: pulse-highlight 2s infinite;
+        }
+
+        @keyframes pulse-highlight {
+            0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
+            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
+            100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
         }
 
         .bento-grid {
@@ -1704,16 +1405,6 @@ HTML_TEMPLATE = """
                                 </h5>
                                 <div id="ov-amenities" class="grid grid-cols-2 gap-3"></div>
                             </div>
-                            
-                            <!-- Real-time Departures Section -->
-                            <div>
-                                <h5 class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-6 flex items-center gap-2">
-                                    <i data-lucide="radio" size="12" class="animate-pulse"></i> Neural Flux (Live)
-                                </h5>
-                                <div id="ov-trains" class="space-y-3">
-                                    <!-- JS Injected -->
-                                </div>
-                            </div>
                         </div>
 
                         <div class="pt-8 border-t border-slate-100 mt-auto">
@@ -1739,7 +1430,7 @@ HTML_TEMPLATE = """
                     <div class="absolute -right-20 -top-20 w-96 h-96 bg-blue-50/50 rounded-full blur-[100px] transition-all group-hover:bg-blue-100/30"></div>
                     
                     <!-- Input Matrix -->
-                    <div class="grid grid-cols-1 md:grid-cols-11 items-center gap-2 mb-10">
+                    <div class="grid grid-cols-1 md:grid-cols-11 items-center gap-2 mb-6">
                         <div class="md:col-span-2 space-y-3">
                             <label class="text-[10px] font-black text-slate-500 uppercase block tracking-[0.2em] pl-1">Travel Time</label>
                             <div class="relative">
@@ -1772,16 +1463,32 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Live Station Preview (Next 1 Hour) -->
-                    <div id="quick-train-preview" class="hidden mb-10 animate-in fade-in slide-in-from-top-4 duration-500">
-                        <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-[9px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Upcoming Departures from Selected Station
-                            </h4>
-                        </div>
-                        <div id="quick-train-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <!-- Injected by JS -->
-                        </div>
+                    <!-- User Preferences Segment -->
+                    <div class="flex flex-wrap items-center gap-4 px-2">
+                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest mr-2">Route Optimization:</span>
+                        
+                        <label class="flex items-center gap-2 cursor-pointer group">
+                            <input type="checkbox" id="pref-comfort" onchange="autoPlan()" class="hidden peer">
+                            <div class="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] font-black text-slate-400 uppercase tracking-widest peer-checked:bg-blue-50 peer-checked:border-blue-200 peer-checked:text-blue-600 transition-all group-hover:bg-slate-100">
+                                Low Crowds
+                            </div>
+                        </label>
+                        
+                        <label class="flex items-center gap-2 cursor-pointer group">
+                            <input type="checkbox" id="pref-speed" onchange="autoPlan()" class="hidden peer">
+                            <div class="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] font-black text-slate-400 uppercase tracking-widest peer-checked:bg-emerald-50 peer-checked:border-emerald-200 peer-checked:text-emerald-600 transition-all group-hover:bg-slate-100">
+                                Fast Path
+                            </div>
+                        </label>
+                        
+                        <label class="flex items-center gap-2 cursor-pointer group">
+                            <input type="checkbox" id="pref-scenic" onchange="autoPlan()" class="hidden peer">
+                            <div class="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] font-black text-slate-400 uppercase tracking-widest peer-checked:bg-amber-50 peer-checked:border-amber-200 peer-checked:text-amber-600 transition-all group-hover:bg-slate-100">
+                                Scenic Views
+                            </div>
+                        </label>
+                    </div>
+
                     </div>
                 </div>
 
@@ -1809,9 +1516,16 @@ HTML_TEMPLATE = """
                             <span class="text-[9px] font-black uppercase tracking-widest text-slate-400">Distance</span>
                             <span id="route-dist-km" class="text-xl font-black text-slate-900">-- KM</span>
                         </div>
-                        <div class="bg-blue-600 p-5 rounded-[28px] shadow-lg flex flex-col gap-1 text-white">
-                            <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Fare</span>
-                            <span id="route-fare" class="text-xl font-black">₹--</span>
+                        <div class="bg-blue-600 p-5 rounded-[28px] shadow-lg flex flex-col gap-1 text-white relative overflow-hidden group/fare">
+                            <div class="absolute -right-2 -top-2 w-16 h-16 bg-white/5 rounded-full blur-xl group-hover/fare:bg-white/10 transition-all"></div>
+                            <div class="flex items-center justify-between relative z-10">
+                                <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Estimated Fare</span>
+                                <div class="flex items-center gap-1.5 px-2 py-1 bg-white/10 rounded-lg border border-white/10 backdrop-blur-sm">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+                                    <span class="text-[7px] font-black uppercase tracking-widest opacity-90">Real-time</span>
+                                </div>
+                            </div>
+                            <span id="route-fare" class="text-2xl font-black relative z-10 flex items-baseline gap-1">₹<span id="route-fare-val">--</span></span>
                         </div>
                         <div class="bg-slate-900 p-5 rounded-[28px] shadow-lg flex flex-col gap-1 text-white">
                             <span class="text-[9px] font-black uppercase tracking-widest opacity-70">Ridership</span>
@@ -1842,6 +1556,19 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
+                    <div id="route-transfer-container" class="hidden mt-8 mb-6">
+                        <h5 class="text-[11px] font-black uppercase text-blue-600 tracking-widest pl-2 mb-4 flex items-center gap-2">
+                            <i data-lucide="shuffle" size="14"></i> Transfer Intelligence
+                        </h5>
+                        <div id="route-transfer-list" class="space-y-4">
+                            <!-- Dynamic Transfers -->
+                        </div>
+                    </div>
+
+                    <div id="track-vector-container" class="hidden mt-6 mb-6">
+                        <!-- Tracking Card Injection Point -->
+                    </div>
+
                     <!-- Station Stop List -->
                     <div class="bg-white rounded-[32px] border border-slate-100 shadow-xl overflow-hidden mt-6">
                         <div class="p-6 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
@@ -1856,21 +1583,19 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Upcoming Schedules -->
-                    <div class="space-y-4 mt-8 bg-blue-50/30 p-8 rounded-[40px] border border-blue-50">
-                        <div class="flex items-center justify-between px-2">
-                            <h5 class="text-[11px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                                <i data-lucide="clock" size="14" class="text-blue-600"></i> Next 1 Hour Departures
-                            </h5>
-                            <span class="text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-0.5 rounded-md">Live Forecast</span>
-                        </div>
-                        <div id="schedule-list" class="space-y-3">
-                            <!-- Upcoming trains here -->
+                    <!-- Alternatives Container -->
+                    <div id="route-alternatives-wrapper" class="hidden mt-10 mb-8 border-t border-slate-100 pt-10">
+                        <h5 class="text-[11px] font-black uppercase text-slate-400 tracking-widest pl-2 mb-6 flex items-center gap-2">
+                            <i data-lucide="split" size="14"></i> AI Suggested Alternatives
+                        </h5>
+                        <div id="alternatives-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Injected by JS -->
                         </div>
                     </div>
+
                 </div>
 
-                    <!-- Digital Ticket & Payment Hub -->
+                <!-- Digital Ticket & Payment Hub -->
                     <div class="glass-card p-10 border-none bg-blue-600 text-white relative overflow-hidden">
                         <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl"></div>
                         <div class="flex items-center gap-4 mb-6 relative z-10">
@@ -2176,6 +1901,57 @@ HTML_TEMPLATE = """
         let userMarker = null;
         let trainAnimationId = null;
         let tabState = 'home';
+        let followingTrainId = null; // Global for "Follow mode"
+        let plannedRoutePolyline = null;
+        let routeMarkers = [];
+
+        function trackTrain(tripId) {
+            followingTrainId = tripId;
+            showTab('map');
+            
+            // Highlight the specific marker
+            trainMarkers.forEach((m, tid) => {
+                const el = m.getElement();
+                if (el) {
+                    if (tid === tripId) {
+                        el.style.filter = 'drop-shadow(0 0 15px rgba(59, 130, 246, 0.8))';
+                        el.classList.add('tracking-active');
+                    } else {
+                        el.style.filter = 'grayscale(0.5) opacity(0.5)';
+                        el.classList.remove('tracking-active');
+                    }
+                }
+            });
+            
+            // Add a "Stop Tracking" floating button if not exists
+            if (!document.getElementById('stop-tracking-ctrl')) {
+                const ctrl = document.createElement('div');
+                ctrl.id = 'stop-tracking-ctrl';
+                ctrl.className = "fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-4 duration-500 border border-slate-700";
+                ctrl.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
+                        <span class="text-[10px] font-black uppercase tracking-widest">Tracking Live Vector</span>
+                    </div>
+                    <button onclick="stopTracking()" class="pl-4 border-l border-white/20 text-[10px] font-black text-red-400 uppercase tracking-widest hover:text-red-300">Stop</button>
+                `;
+                document.body.appendChild(ctrl);
+            }
+        }
+
+        function stopTracking() {
+            followingTrainId = null;
+            const ctrl = document.getElementById('stop-tracking-ctrl');
+            if (ctrl) ctrl.remove();
+            
+            trainMarkers.forEach((m) => {
+                const el = m.getElement();
+                if (el) {
+                    el.style.filter = '';
+                    el.classList.remove('tracking-active');
+                }
+            });
+        }
 
         function initLeafletMap() {
             if (map) return;
@@ -2258,12 +2034,46 @@ HTML_TEMPLATE = """
             if (oldBtn) oldBtn.remove();
 
             if (interchanges.includes(s.name)) {
+                // Prominent Interchange Summary in Overlay
+                const iData = interchangeData[s.name];
+                const summaryBox = document.createElement('div');
+                summaryBox.className = "mb-6 p-6 bg-slate-900 text-white rounded-[32px] shadow-2xl relative overflow-hidden group";
+                summaryBox.innerHTML = `
+                    <div class="absolute -right-4 -top-4 w-20 h-20 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all"></div>
+                    <div class="relative z-10">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Interchange Core</p>
+                            <span class="flex items-center gap-1.5 px-2 py-0.5 bg-blue-500 text-white text-[7px] font-black rounded uppercase tracking-widest border border-blue-400">
+                                <i data-lucide="clock" size="8"></i> ${iData.time} Est.
+                            </span>
+                        </div>
+                        <div class="space-y-3">
+                            ${iData.platforms.map(p => `
+                                <div class="p-3 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors">
+                                    <p class="text-[7px] font-black text-blue-400 uppercase tracking-tighter mb-1">${p.pair}</p>
+                                    <p class="text-[10px] font-bold text-slate-100 leading-tight">${p.text}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-white/10 uppercase tracking-[0.1em] text-[7px] font-black text-blue-300 flex items-center gap-2">
+                            <i data-lucide="zap" size="10"></i>
+                            Optimal Transit: Follow ${iData.lines.join(' & ')} color-coded paths.
+                        </div>
+                    </div>
+                `;
+                document.getElementById('ov-name').after(summaryBox);
+
                 openInterchangeModal(s);
                 const interBtn = document.createElement('button');
                 interBtn.id = 'ov-inter-btn';
                 interBtn.onclick = () => openInterchangeModal(s);
-                interBtn.className = "w-full mt-4 py-3 bg-blue-50 text-blue-600 rounded-xl font-black text-[9px] uppercase tracking-widest border border-blue-100 mb-6 flex items-center justify-center gap-2";
-                interBtn.innerHTML = `<i data-lucide="shuffle" size="12"></i> View Interchange Guidance`;
+                interBtn.className = "w-full mt-4 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl shadow-indigo-200 border border-indigo-500 hover:bg-indigo-700 transition-all transform hover:scale-[1.02] active:scale-95 mb-6";
+                interBtn.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="shuffle" size="14"></i> View Deep Transfer Logic
+                    </div>
+                    <span class="px-2 py-0.5 bg-white/20 rounded text-[7px] border border-white/30">PLATFORM MAP</span>
+                `;
                 document.getElementById('ov-name').after(interBtn);
             }
 
@@ -2404,6 +2214,11 @@ HTML_TEMPLATE = """
                 const curLat = s1.lat + (s2.lat - s1.lat) * easedProgress;
                 const curLng = s1.lng + (s2.lng - s1.lng) * easedProgress;
                 
+                // Centering for follow mode
+                if (followingTrainId === tid) {
+                    map.panTo([curLat, curLng]);
+                }
+                
                 // Smoothed rotation calculation
                 const targetAngle = Math.atan2(s2.lat - s1.lat, s2.lng - s1.lng) * 180 / Math.PI;
 
@@ -2428,6 +2243,11 @@ HTML_TEMPLATE = """
                                 inner.classList.add('at-station');
                             } else {
                                 inner.classList.remove('at-station');
+                            }
+
+                            // Follow mode centering
+                            if (followingTrainId === tid) {
+                                map.panTo([curLat, curLng], { animate: true, duration: 0.1 });
                             }
                         }
                     }
@@ -2634,11 +2454,14 @@ HTML_TEMPLATE = """
                     card.innerHTML = `
                         <div class="flex items-center gap-5">
                             <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
-                                <i data-lucide="route" size="20"></i>
+                                <i data-lucide="${v.hasInterchange ? 'shuffle' : 'route'}" size="20"></i>
                             </div>
                             <div>
                                 <h5 class="text-sm font-black text-slate-900 tracking-tight">${v.fromName} <i data-lucide="chevrons-right" class="inline opacity-30 px-1" size="12"></i> ${v.toName}</h5>
-                                <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">${v.line || 'Multi-Line'} Access</p>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest">${v.line || 'Multi-Line'} Access</p>
+                                    ${v.hasInterchange ? `<span class="px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[6px] font-black rounded uppercase tracking-widest border border-blue-100">${v.interchanges.length} Transfer${v.interchanges.length > 1 ? 's' : ''}</span>` : ''}
+                                </div>
                             </div>
                         </div>
                         <button onclick="removeSavedVector(event, '${v.id}')" class="p-2 hover:bg-red-50 hover:text-red-500 text-slate-300 rounded-xl transition-all">
@@ -2679,7 +2502,9 @@ HTML_TEMPLATE = """
                 to: endId,
                 fromName: clean(startNode.options[startNode.selectedIndex].text),
                 toName: clean(endNode.options[endNode.selectedIndex].text),
-                line: stations.find(s => s.id === startId).line
+                line: stations.find(s => s.id === startId).line,
+                hasInterchange: currentPlannedRoute.guides && currentPlannedRoute.guides.length > 0,
+                interchanges: currentPlannedRoute.guides ? currentPlannedRoute.guides.map(g => g.station) : []
             };
 
             saved.push(vector);
@@ -3276,12 +3101,20 @@ HTML_TEMPLATE = """
             guidance.innerHTML = '';
             data.guidance.forEach(step => {
                 const div = document.createElement('div');
-                div.className = "flex gap-4 items-start";
+                div.className = "mb-4";
                 div.innerHTML = `
-                    <div class="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                        <span class="text-[10px] font-black text-blue-600">${data.guidance.indexOf(step) + 1}</span>
+                    <div class="flex gap-6 items-start p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-blue-300 transition-all">
+                        <div class="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0 shadow-lg group-hover:scale-110 transition-transform">
+                            <span class="text-[10px] font-black">${data.guidance.indexOf(step) + 1}</span>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-[12px] font-black text-slate-700 leading-snug tracking-tight mb-1">${step}</p>
+                            <div class="flex items-center gap-2">
+                                <div class="w-1 h-1 rounded-full bg-emerald-500"></div>
+                                <span class="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em]">Verified Path</span>
+                            </div>
+                        </div>
                     </div>
-                    <p class="text-sm font-bold text-slate-600 leading-relaxed">${step}</p>
                 `;
                 guidance.appendChild(div);
             });
@@ -3763,9 +3596,6 @@ HTML_TEMPLATE = """
             if (f && t) {
                 planJourney();
             }
-            if (f) {
-                updateLiveStationFeed(f);
-            }
         }
 
         async function updateLiveStationFeed(stationId) {
@@ -3877,6 +3707,13 @@ HTML_TEMPLATE = """
         async function planJourney() {
             const outArea = document.getElementById('route-output');
             const plannedTime = document.getElementById('plan-time').value;
+            
+            // Get Preferences
+            const userPrefs = {
+                comfort: document.getElementById('pref-comfort')?.checked || false,
+                speed: document.getElementById('pref-speed')?.checked || false,
+                scenic: document.getElementById('pref-scenic')?.checked || false
+            };
 
             try {
                 const f = document.getElementById('start-st').value, t = document.getElementById('end-st').value;
@@ -3888,242 +3725,348 @@ HTML_TEMPLATE = """
                     body: JSON.stringify({
                         from: f, 
                         to: t,
-                        planned_time: plannedTime
+                        planned_time: plannedTime,
+                        user_prefs: userPrefs
                     }) 
                 });
-                const data = await res.json();
+                const responseData = await res.json();
                 
-                if (data.status === 'closed' || data.status === 'no_trains') {
-                    alert(data.message);
+                if (responseData.status === 'closed' || responseData.status === 'no_trains' || responseData.status === 'error') {
+                    alert(responseData.message || "Route planning failed");
                     return;
                 }
 
-                currentPlannedRoute = data;
-                outArea.classList.remove('hidden');
+                // Primary Route Processing
+                renderRouteDisplay(responseData.primary);
                 
-                // Draw route on map
-                if (map) {
-                    if (plannedRoutePolyline) map.removeLayer(plannedRoutePolyline);
-                    const latlngs = data.sequence.map(s => [s.lat, s.lng]);
-                    plannedRoutePolyline = L.polyline(latlngs, {
-                        color: data.sequence[0].line === 'Red' ? '#ef4444' : data.sequence[0].line === 'Blue' ? '#3b82f6' : '#22c55e',
-                        weight: 6,
-                        opacity: 0.8,
-                        dashArray: '10, 10',
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    }).addTo(map);
-                    map.fitBounds(plannedRoutePolyline.getBounds(), { padding: [50, 50] });
+                // Alternative Routes Processing
+                renderAlternatives(responseData.alternatives || []);
+
+            } catch (e) {
+                console.error("Plan Journey error:", e);
+            }
+        }
+
+        function renderRouteDisplay(data) {
+            const outArea = document.getElementById('route-output');
+            currentPlannedRoute = data;
+            outArea.classList.remove('hidden');
+            
+            const emptyState = document.getElementById('route-empty');
+            if (emptyState) emptyState.classList.add('hidden');
+
+            // Draw route on map
+            if (map) {
+                if (plannedRoutePolyline) map.removeLayer(plannedRoutePolyline);
+                routeMarkers.forEach(m => map.removeLayer(m));
+                routeMarkers = [];
+
+                const latlngs = data.sequence.map(s => [s.lat, s.lng]);
+                plannedRoutePolyline = L.polyline(latlngs, {
+                    color: data.sequence[0].line === 'Red' ? '#ef4444' : data.sequence[0].line === 'Blue' ? '#3b82f6' : '#22c55e',
+                    weight: 6,
+                    opacity: 0.8,
+                    dashArray: '10, 10',
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(map);
+
+                data.sequence.forEach((s, idx) => {
+                    const isInterchange = !!interchangeData[s.name];
+                    if (isInterchange || idx === 0 || idx === data.sequence.length - 1) {
+                        const icon = L.divIcon({
+                            className: 'route-node-marker',
+                            html: `<div class="relative group">
+                                        <div class="w-10 h-10 ${isInterchange ? 'bg-blue-600' : 'bg-slate-900'} rounded-2xl flex items-center justify-center text-white shadow-2xl border-2 border-white transform transition-transform group-hover:scale-110">
+                                            <i data-lucide="${idx === 0 ? 'play' : idx === data.sequence.length - 1 ? 'square' : 'shuffle'}" size="${isInterchange ? 20 : 16}"></i>
+                                        </div>
+                                        <div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-[1000] shadow-xl">
+                                            ${s.name} ${isInterchange ? '(Hub)' : ''}
+                                        </div>
+                                   </div>`,
+                            iconSize: [40, 40],
+                            iconAnchor: [20, 20]
+                        });
+                        const marker = L.marker([s.lat, s.lng], { icon }).addTo(map);
+                        routeMarkers.push(marker);
+                    }
+                });
+
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                map.fitBounds(plannedRoutePolyline.getBounds(), { padding: [50, 50] });
+            }
+
+            // Metrics Update
+            const durEl = document.getElementById('route-dur');
+            const distEl = document.getElementById('route-dist-km');
+            const fareValEl = document.getElementById('route-fare-val');
+            const loadValEl = document.getElementById('route-load-val');
+            const loadLabelEl = document.getElementById('route-load-label');
+            const recEl = document.getElementById('route-rec');
+            const routeTransferCont = document.getElementById('route-transfer-container');
+            const routeTransferList = document.getElementById('route-transfer-list');
+            const stopsCont = document.getElementById('route-stops-list');
+
+            if (followingTrainId) stopTracking();
+
+            if (durEl) durEl.innerText = (data.duration || '--') + 'm';
+            if (distEl) distEl.innerText = (data.total_km || '--') + ' KM';
+            if (fareValEl) {
+                fareValEl.innerText = data.fare || '--';
+                // Trigger a small highlight effect on update
+                fareValEl.parentElement.classList.add('animate-pulse');
+                setTimeout(() => fareValEl.parentElement.classList.remove('animate-pulse'), 1000);
+            }
+            
+            const loadVal = Math.round(data.load || 35);
+            if (loadValEl) loadValEl.innerText = loadVal + '%';
+            if (loadLabelEl) {
+                if (loadVal < 35) loadLabelEl.innerText = "Smooth";
+                else if (loadVal < 65) loadLabelEl.innerText = "Active";
+                else loadLabelEl.innerText = "Dense";
+            }
+            if (recEl) recEl.innerText = data.recommendation || 'No advisory for this route.';
+            
+            // Track Train Card
+            const trackCont = document.getElementById('track-vector-container');
+            if (trackCont) {
+                trackCont.innerHTML = '';
+                if (data.chosen_trip_id) {
+                    trackCont.classList.remove('hidden');
+                    const card = document.createElement('div');
+                    card.className = "col-span-full bg-slate-900 rounded-[40px] p-8 text-white relative overflow-hidden group shadow-2xl mb-6 border border-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-500";
+                    card.innerHTML = `
+                        <div class="absolute -right-20 -top-20 w-60 h-60 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all duration-700"></div>
+                        <div class="relative z-10">
+                            <div class="flex items-center justify-between mb-6">
+                                <div>
+                                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-2">Live Telemetry Active</p>
+                                    <h3 class="text-3xl font-black italic tracking-tighter">Vector ${data.chosen_trip_id.split('_').pop() || 'N/A'}</h3>
+                                </div>
+                                <div class="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 group-hover:bg-blue-600 group-hover:border-blue-500 transition-all">
+                                    <i data-lucide="radio" size="24" class="animate-pulse"></i>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 mb-8">
+                                <div class="p-4 bg-white/5 rounded-2xl border border-white/10">
+                                    <p class="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Path Fidelity</p>
+                                    <p class="text-xs font-black">99.8% Sync</p>
+                                </div>
+                                <div class="p-4 bg-white/5 rounded-2xl border border-white/10">
+                                    <p class="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</p>
+                                    <p class="text-xs font-black text-emerald-400">On Track</p>
+                                </div>
+                            </div>
+                            <button onclick="trackTrain('${data.chosen_trip_id}')" class="w-full py-5 bg-blue-600 rounded-3xl font-black text-[11px] uppercase tracking-widest hover:bg-blue-500 transition-all transform hover:scale-[1.02] active:scale-95 shadow-xl shadow-blue-900/40">
+                                Track Live Vector on Map
+                            </button>
+                        </div>
+                    `;
+                    trackCont.appendChild(card);
+                } else {
+                    trackCont.classList.add('hidden');
                 }
+            }
 
-                const emptyState = document.getElementById('route-empty');
-                if (emptyState) emptyState.classList.add('hidden');
-                
-                // Updates for simplified UI metrics
-                const durEl = document.getElementById('route-dur');
-                const distEl = document.getElementById('route-dist-km');
-                const fareEl = document.getElementById('route-fare');
-                const loadValEl = document.getElementById('route-load-val');
-                const loadLabelEl = document.getElementById('route-load-label');
-                const recEl = document.getElementById('route-rec');
-
-                if (durEl) durEl.innerText = (data.duration || '--') + 'm';
-                if (distEl) distEl.innerText = (data.total_km || '--') + ' KM';
-                if (fareEl) fareEl.innerText = '₹' + (data.fare || '--');
-                if (loadValEl) loadValEl.innerText = (data.load || '--') + '%';
-                if (loadLabelEl) loadLabelEl.innerText = data.load < 40 ? 'OPTIMAL' : 'MODERATE';
-                if (recEl) recEl.innerText = data.recommendation || 'No advisory for this route.';
-                
-                // Gemini Personalized Suggestion
-                if (window.GoogleGenAI && "{{ GEMINI_API_KEY }}") {
+            // Gemini Dynamic Advice (Client Side)
+            if (window.GoogleGenAI && "{{ GEMINI_API_KEY }}") {
+                async function updateAiAdvice() {
                     try {
-                        const loadingSub = "Analyzing neural path logic...";
-                        document.getElementById('route-rec').innerText = loadingSub;
+                        const recEl = document.getElementById('route-rec');
+                        if (!recEl) return;
+                        recEl.innerText = "Analyzing neural path logic...";
                         
                         const ai = new window.GoogleGenAI({ apiKey: "{{ GEMINI_API_KEY }}" });
                         const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-                        const prompt = `You are the Hyderabad Metro AI Assistant. Analyze this route data and provide ONE short, personalized advice (max 25 words).
-                        Route: ${data.sequence[0].name} to ${data.sequence[data.sequence.length - 1].name}
-                        Stops: ${data.total_stops}
-                        Peak Intensity: ${data.peak_intensity}%
-                        Crowd Level: ${data.load}%
-                        General Status: ${data.recommendation}
-                        Note: Mention specific stations like ${data.sequence[0].name} or interchanges if any. Use a helpful, futuristic tone.`;
+                        const prompt = `Analyze this route: ${data.sequence[0].name} -> ${data.sequence[data.sequence.length - 1].name}. 
+                        Stops: ${data.total_stops}, Distance: ${data.total_km}km, Load: ${data.load}%, Conditions: ${data.weather_desc || 'Normal'}.
+                        Provide ONE helpful, futuristic transit advisory (max 20 words). Mention a specific station if relevant.`;
                         
                         const resAI = await model.generateContent(prompt);
                         const responseText = resAI.response.text();
                         if (responseText) {
-                            document.getElementById('route-rec').innerText = responseText.trim();
+                            recEl.innerText = responseText.trim().replace(/^"|"$/g, '');
                         }
-                    } catch (aiErr) {
-                        console.error("Gemini suggestion failed:", aiErr);
-                    }
+                    } catch (e) { console.error("AI Insight error:", e); }
                 }
-                
-                // Crowd Data
-                const loadVal = Math.round(data.load || 35);
-                document.getElementById('route-load-val').innerText = loadVal + '%';
-                
-                // Difficulty Label
-                const loadLabel = document.getElementById('route-load-label');
-                if (loadLabel) {
-                    if (loadVal < 35) loadLabel.innerText = "Smooth";
-                    else if (loadVal < 65) loadLabel.innerText = "Active";
-                    else loadLabel.innerText = "Dense";
-                }
-                
-                // Personalized Recommendations
-                const persRecCont = document.getElementById('personalized-recommendations');
-                const persRecWrapper = document.getElementById('personalized-recommendations-wrapper');
-                if (persRecCont) {
-                    persRecCont.innerHTML = '';
-                    if (data.personalized_advices && data.personalized_advices.length > 0) {
-                        if (persRecWrapper) persRecWrapper.classList.remove('hidden');
-                        data.personalized_advices.forEach((adv, idx) => {
-                            const card = document.createElement('div');
-                            // Ultra-prominent prominent design for top-tier AI insights
-                            card.className = `bg-indigo-600 p-6 rounded-[32px] shadow-2xl shadow-indigo-500/30 text-white flex items-start gap-6 transform transition-all duration-700 hover:scale-[1.03] border border-indigo-400/40 relative overflow-hidden`;
-                            // Staggered Fade In
-                            card.style.opacity = '0';
-                            card.style.transform = 'translateY(20px)';
-                            setTimeout(() => {
-                                card.style.opacity = '1';
-                                card.style.transform = 'translateY(0)';
-                            }, idx * 150);
+                updateAiAdvice();
+            }
 
-                            card.innerHTML = `
-                                <div class="absolute -right-4 -top-4 w-20 h-20 bg-white/5 rounded-full blur-2xl"></div>
-                                <div class="w-12 h-12 bg-white/10 text-white rounded-2xl flex items-center justify-center shrink-0 border border-white/20">
-                                    <i data-lucide="${adv.icon}" size="22"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="flex items-center gap-2 mb-2">
-                                        <span class="px-2 py-0.5 bg-indigo-500 rounded text-[7px] font-black tracking-widest border border-indigo-400">NEURAL ADVISORY</span>
-                                        <h4 class="text-[10px] font-black uppercase tracking-widest text-indigo-200 opacity-80">${adv.title}</h4>
-                                    </div>
-                                    <p class="text-sm font-black tracking-tight leading-tight mb-1 text-white">${adv.text}</p>
-                                </div>
-                            `;
-                            persRecCont.appendChild(card);
-                        });
-                        if (typeof lucide !== 'undefined') lucide.createIcons();
-                    } else {
-                        if (persRecWrapper) persRecWrapper.classList.add('hidden');
-                    }
-                }
-
-                lastCalculatedFare = data.fare;
-                
-                // Render Stops List (In-between metro stations)
-                const stopsCont = document.getElementById('route-stops-list');
-                if (stopsCont) {
-                    stopsCont.innerHTML = '';
-                    
-                    // Show a header for the journey sequence
-                    const header = document.createElement('div');
-                    header.className = "mb-6 pb-4 border-b border-slate-100";
-                    header.innerHTML = `
-                        <h4 class="text-[10px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                            <i data-lucide="layers" size="14" class="text-blue-600"></i> Intermediate Station Sequence
-                        </h4>
-                        <p class="text-[8px] font-medium text-slate-400 mt-1 uppercase tracking-tight">Total of ${data.sequence.length} stations including transfers</p>
-                    `;
-                    stopsCont.appendChild(header);
-
-                    data.sequence.forEach((s, idx) => {
-                        const sDiv = document.createElement('div');
-                        sDiv.className = "flex items-start gap-4 group relative pb-8";
-                        
-                        const isInterchange = !!interchangeData[s.name];
-                        const lineCol = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500';
-                        const dotSize = idx === 0 || idx === data.sequence.length - 1 ? 'w-6 h-6 ring-4' : (isInterchange ? 'w-5 h-5 ring-2' : 'w-3.5 h-3.5');
-                        const ringCol = s.line === 'Red' ? 'ring-red-100' : s.line === 'Blue' ? 'ring-blue-100' : 'ring-emerald-100';
-
-                        // Estimate fare for this stop
-                        const getStopFare = (d) => {
-                            if (d <= 2) return 12; if (d <= 4) return 18; if (d <= 6) return 30;
-                            if (d <= 9) return 40; if (d <= 12) return 50; if (d <= 15) return 55;
-                            if (d <= 18) return 60; if (d <= 21) return 66; if (d <= 24) return 70;
-                            return 75;
-                        };
-                        const stopFare = getStopFare(s.dist_km);
-
-                        sDiv.innerHTML = `
-                            <div class="relative flex flex-col items-center shrink-0 mt-1">
-                                <div class="${dotSize} ${lineCol} ${ringCol} rounded-full z-10 transition-all group-hover:scale-125 flex items-center justify-center text-[7px] font-black text-white shadow-sm">
-                                    ${idx === 0 ? 'START' : idx === data.sequence.length - 1 ? 'END' : (isInterchange ? '🔄' : '')}
-                                </div>
-                                ${idx < data.sequence.length - 1 ? `<div class="absolute top-2 w-[2.5px] h-[calc(100%+2rem)] ${lineCol} opacity-20"></div>` : ''}
+            // Personnelized Advice Cards
+            const persRecCont = document.getElementById('personalized-recommendations');
+            const persRecWrapper = document.getElementById('personalized-recommendations-wrapper');
+            if (persRecCont && data.personalized_advices) {
+                persRecCont.innerHTML = '';
+                if (data.personalized_advices.length > 0) {
+                    persRecWrapper?.classList.remove('hidden');
+                    data.personalized_advices.forEach((adv, i) => {
+                        const card = document.createElement('div');
+                        card.className = "bg-indigo-600 p-6 rounded-[32px] text-white flex items-start gap-5 border border-indigo-400 relative overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500 shadow-xl";
+                        card.style.animationDelay = `${i * 100}ms`;
+                        card.innerHTML = `
+                             <div class="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center shrink-0 border border-white/20">
+                                <i data-lucide="${adv.icon}" size="20"></i>
                             </div>
-                            <div class="flex-1 -mt-1">
-                                <div class="flex justify-between items-start">
-                                    <div class="flex flex-col">
-                                        <p class="text-sm font-black ${idx === 0 || idx === data.sequence.length - 1 ? 'text-slate-900' : 'text-slate-700'} group-hover:text-blue-600 transition-colors flex items-center gap-2">
-                                            ${s.name}
-                                            ${isInterchange ? `<span class="px-1.5 py-0.5 bg-blue-600 text-white text-[6px] font-black rounded uppercase tracking-widest">Interchange</span>` : ''}
-                                        </p>
-                                        ${isInterchange ? `<p class="text-[8px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">Connects ${interchangeData[s.name].lines.join(' & ')} lines • Est. transfer: ${interchangeData[s.name].time}</p>` : ''}
-                                    </div>
-                                    <div class="text-right">
-                                        <span class="text-[11px] font-black text-blue-600 tabular-nums">${s.reaching_at}</span>
-                                        <div class="flex flex-col items-end gap-0.5 mt-1">
-                                            <span class="text-[7px] font-bold text-slate-400 uppercase tracking-widest">₹${stopFare} Fare</span>
-                                            <span class="text-[7px] font-bold text-slate-300 uppercase tracking-widest">${s.dist_km} KM</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="flex flex-wrap items-center gap-2 mt-2">
-                                    <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${lineCol}">${s.line} LINE</span>
-                                    ${s.segment_min > 0 ? `<span class="text-[8px] font-black text-indigo-600 uppercase tracking-tighter shrink-0 bg-indigo-50 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i data-lucide="clock" size="8"></i> ${idx === 0 ? 'Start' : `+${s.segment_min}m`}</span>` : ''}
-                                    ${s.predicted_load ? `
-                                        <div class="flex items-center gap-1 px-1.5 py-0.5 ${s.travel_difficulty === 'Smooth & Easy' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : s.travel_difficulty === 'Manageable Flux' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-orange-50 text-orange-600 border-orange-100'} rounded border group-hover:opacity-100 transition-opacity">
-                                            <span class="text-[7px] font-black uppercase tracking-tighter">${s.travel_difficulty} (${s.predicted_load}%)</span>
-                                        </div>
-                                    ` : ''}
-                                </div>
+                            <div class="flex-1">
+                                <h4 class="text-[8px] font-black uppercase tracking-widest text-indigo-200 mb-1">${adv.title}</h4>
+                                <p class="text-[13px] font-black leading-tight">${adv.text}</p>
                             </div>
                         `;
-                        stopsCont.appendChild(sDiv);
+                        persRecCont.appendChild(card);
                     });
-                }
+                } else { persRecWrapper?.classList.add('hidden'); }
+            }
 
-                const sched = document.getElementById('schedule-list'); sched.innerHTML = '';
+            // Transfers Intelligence
+            if (routeTransferList) {
+                routeTransferList.innerHTML = '';
+                if (data.guides && data.guides.length > 0) {
+                    routeTransferCont?.classList.remove('hidden');
+                    data.guides.forEach(g => {
+                        const card = document.createElement('div');
+                        card.className = "bg-white p-6 rounded-[32px] border-2 border-blue-100 shadow-sm relative overflow-hidden group hover:border-blue-500 transition-all";
+                        card.innerHTML = `
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-lg"><i data-lucide="shuffle" size="20"></i></div>
+                                    <div>
+                                        <p class="text-[8px] font-black text-blue-600 uppercase tracking-widest">Interchange Operation</p>
+                                        <h4 class="text-base font-black text-slate-900">${g.station}</h4>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="bg-blue-600 text-white px-3 py-1.5 rounded-xl text-center shadow-sm">
+                                        <p class="text-[7px] font-black uppercase tracking-widest opacity-60">Platform</p>
+                                        <p class="text-xs font-black">${g.platform}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <p class="text-xs font-bold text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">${g.text}</p>
+                            ${g.steps ? `
+                                <div class="space-y-2">
+                                    ${g.steps.map((s, i) => `
+                                        <div class="flex gap-3 items-center">
+                                            <span class="w-5 h-5 bg-blue-50 text-blue-600 rounded text-[9px] font-black flex items-center justify-center">${i+1}</span>
+                                            <p class="text-[10px] font-bold text-slate-500">${s}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        `;
+                        routeTransferList.appendChild(card);
+                    });
+                } else { routeTransferCont?.classList.add('hidden'); }
+            }
+
+            // Intermediate Stops
+            if (stopsCont) {
+                stopsCont.innerHTML = '';
+                data.sequence.forEach((s, i) => {
+                    const row = document.createElement('div');
+                    row.className = "flex items-start gap-4 pb-6 relative group";
+                    const isHub = !!interchangeData[s.name];
+                    const lineCol = s.line === 'Red' ? 'bg-red-500' : s.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500';
+                    row.innerHTML = `
+                        <div class="flex flex-col items-center shrink-0">
+                            <div class="w-4 h-4 ${lineCol} rounded-full ring-4 ${lineCol.replace('bg-', 'ring-')}/20 z-10"></div>
+                            ${i < data.sequence.length - 1 ? `<div class="w-[2px] h-full ${lineCol} opacity-20 absolute top-2"></div>` : ''}
+                        </div>
+                        <div class="flex-1 -mt-1">
+                            <div class="flex justify-between">
+                                <p class="text-sm font-black ${isHub ? 'text-blue-600' : 'text-slate-900'}">${s.name} ${isHub ? '🔄' : ''}</p>
+                                <span class="text-[11px] font-black text-slate-400 font-mono">${s.reaching_at}</span>
+                            </div>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="px-1.5 py-0.5 rounded text-[7px] font-black text-white ${lineCol}">${s.line}</span>
+                                <span class="text-[8px] font-black text-slate-300 uppercase">${s.dist_km} KM</span>
+                                ${s.predicted_load ? `<span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase ${s.predicted_load > 70 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}">Load: ${s.predicted_load}%</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                    stopsCont.appendChild(row);
+                });
+            }
+
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            lastCalculatedFare = data.fare;
+
+            // Update Upcoming Hour Schedule
+            const sched = document.getElementById('schedule-list');
+            if (sched && data.upcoming_hour) {
+                sched.innerHTML = '';
                 data.upcoming_hour.forEach(u => {
-                    const div = document.createElement('div'); 
-                    div.className = 'flex justify-between items-center bg-white p-6 rounded-3xl border border-slate-50 shadow-sm hover:shadow-md transition-all';
+                    const div = document.createElement('div');
+                    div.className = 'flex justify-between items-center bg-white p-6 rounded-3xl border border-slate-50 shadow-sm hover:shadow-md transition-all animate-in fade-in slide-in-from-right-4 duration-500';
                     div.innerHTML = `
                         <div class="flex items-center gap-5">
-                            <div class="w-12 h-12 rounded-2xl bg-slate-50 flex flex-col items-center justify-center border border-slate-100">
+                            <div class="w-12 h-12 rounded-2xl bg-slate-50 flex flex-col items-center justify-center border border-slate-100 shrink-0">
                                 <span class="text-[8px] font-black text-slate-400 uppercase">PLAT</span>
                                 <span class="text-[14px] font-black text-slate-900">${u.platform}</span>
                             </div>
                             <div>
-                                <span class="text-sm font-black text-slate-700 block">${u.final_stop}</span>
-                                <div class="flex items-center gap-2">
-                                    <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${u.line === 'Red' ? 'bg-red-500' : u.line === 'Blue' ? 'bg-blue-500' : 'bg-green-500'}">${u.line} LINE</span>
+                                <span class="text-sm font-black text-slate-700 block line-clamp-1">${u.final_stop}</span>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-white ${u.line === 'Red' ? 'bg-red-500' : u.line === 'Blue' ? 'bg-blue-500' : 'bg-emerald-500'}">${u.line} LINE</span>
                                     <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest">Arrives: ${u.arrival_time}</span>
                                 </div>
                             </div>
                         </div>
-                        <div class="text-right">
-                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Reach Dest</span>
+                        <div class="text-right shrink-0">
+                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Reach Dest</span>
                             <p class="text-[15px] font-black text-blue-600 tabular-nums">${u.est_reach || '--:--'}</p>
-                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">in ${u.eta}m</p>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-0.5">in ${u.eta}m</p>
                         </div>`;
                     sched.appendChild(div);
                 });
-                
-                lucide.createIcons();
-                document.getElementById('route-output').scrollIntoView({ behavior: 'smooth' });
-
-            } catch (e) {
-                console.error(e);
-            } finally {
-                btn.disabled = false;
-                btnText.classList.remove('opacity-0');
-                loader.classList.add('hidden');
             }
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        function renderAlternatives(alternatives) {
+            const wrapper = document.getElementById('route-alternatives-wrapper');
+            const list = document.getElementById('alternatives-list');
+            if (!list || !alternatives || alternatives.length === 0) {
+                wrapper?.classList.add('hidden');
+                return;
+            }
+            wrapper?.classList.remove('hidden');
+            list.innerHTML = '';
+
+            alternatives.forEach((alt, i) => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all cursor-pointer group animate-in fade-in slide-in-from-bottom-4 duration-500";
+                card.style.animationDelay = `${i * 150}ms`;
+                card.onclick = () => {
+                    renderRouteDisplay(alt);
+                    window.scrollTo({ top: document.getElementById('planner-input-area').offsetTop - 20, behavior: 'smooth' });
+                };
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="w-10 h-10 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                            <i data-lucide="route" size="18"></i>
+                        </div>
+                        <div class="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black">₹${alt.fare}</div>
+                    </div>
+                    <div class="mb-4">
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">AI Recommendation ${i+1}</p>
+                        <h4 class="text-sm font-black text-slate-900 line-clamp-1">${alt.sequence[0].name} to ${alt.sequence[alt.sequence.length-1].name}</h4>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="p-3 bg-slate-50 rounded-2xl text-center">
+                            <p class="text-[7px] font-black text-slate-400 uppercase mb-1">Time</p>
+                            <p class="text-xs font-black text-slate-900">${alt.duration}m</p>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-2xl text-center">
+                            <p class="text-[7px] font-black text-slate-400 uppercase mb-1">Load</p>
+                            <p class="text-xs font-black ${alt.load > 70 ? 'text-red-500' : 'text-emerald-500'}">${alt.load}%</p>
+                        </div>
+                    </div>
+                    <p class="text-[9px] font-bold text-slate-400 leading-tight line-clamp-2 italic">${alt.personalized_advices[0]?.text || 'Optimized path logic.'}</p>
+                `;
+                list.appendChild(card);
+            });
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
 
         // Initialize pickers with grouped matrix logic
@@ -4167,6 +4110,9 @@ HTML_TEMPLATE = """
                         seenIds.add(t.trip_id);
                         trainStates.set(t.trip_id, t);
                         
+                        // Highlight logic for planned route
+                        const isPlannedTrain = currentPlannedRoute && t.trip_id === currentPlannedRoute.chosen_trip_id;
+                        
                         const color = t.line === 'Red' ? '#ef4444' : t.line === 'Blue' ? '#3b82f6' : '#10b981';
                         const accent = t.line === 'Red' ? '#fee2e2' : t.line === 'Blue' ? '#dbeafe' : '#dcfce7';
                         let marker = trainMarkers.get(t.trip_id);
@@ -4178,7 +4124,11 @@ HTML_TEMPLATE = """
                             
                             const trainIcon = L.divIcon({
                                 className: 'train-icon',
-                                html: `<div class="train-shape-inner">
+                                html: `
+                                    <div class="train-halo-container hidden absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        <div class="highlighted-train-halo"></div>
+                                    </div>
+                                    <div class="train-shape-inner">
                                     <svg width="60" height="40" viewBox="0 0 60 40">
                                         <!-- Shadow -->
                                         <rect x="12" y="16" width="36" height="12" rx="4" fill="black" fill-opacity="0.15"/>
@@ -4204,8 +4154,24 @@ HTML_TEMPLATE = """
                                 iconSize: [60, 40],
                                 iconAnchor: [30, 20]
                             });
-                            marker = L.marker([0, 0], { icon: trainIcon, zIndexOffset: 1000 }).addTo(map);
+                            marker = L.marker([0, 0], { icon: trainIcon, zIndexOffset: isPlannedTrain ? 2000 : 1000 }).addTo(map);
                             trainMarkers.set(t.trip_id, marker);
+                        }
+
+                        // Apply persistent highlight for planned train/followed train
+                        const iconEl = marker.getElement();
+                        if (iconEl) {
+                            const tid = t.trip_id;
+                            const halo = iconEl.querySelector('.train-halo-container');
+                            if (isPlannedTrain || tid === followingTrainId) {
+                                if (halo) halo.classList.remove('hidden');
+                                iconEl.style.filter = 'drop-shadow(0 0 20px rgba(59, 130, 246, 0.9))';
+                                iconEl.style.zIndex = "2001";
+                            } else {
+                                if (halo) halo.classList.add('hidden');
+                                iconEl.style.filter = '';
+                                iconEl.style.zIndex = "1000";
+                            }
                         }
                     });
 
