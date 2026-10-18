@@ -1964,10 +1964,16 @@ HTML_TEMPLATE = """
                 attributionControl: false
             });
 
-            // Light Modern Tiles (CartoDB Voyager)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(map);
+            // Light Modern Tiles (CARTO Voyager)
+const CARTO_API_KEY = 'cb1_4nxc_1_4bcea2a0cdc29ba0243dc812';
+
+L.tileLayer(
+    `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+    {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }
+).addTo(map);
 
             L.control.zoom({ position: 'bottomright' }).addTo(map);
 
